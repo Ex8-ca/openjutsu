@@ -37,10 +37,42 @@ Watch the results without rendering anything:
 
 H3's controlnet treats its `mask` input as a soft hint, not a region lock, so
 the whole frame drifts. `web/composite.py` composites the render over the
-source afterwards: the measured difference outside the mask drops to **2.49
+source afterwards: the measured difference outside the mask drops to **2.4
 mean absolute** — which is H.264 re-encode loss, since re-encoding the source
-through the same encoder gives 2.41. Selectivity (in-mask vs out-of-mask
-divergence) goes from **1.27x to 9.10x**.
+through the same encoder gives 2.4. Selectivity (in-mask vs out-of-mask
+divergence) goes from **1.3x to 14x**, measured on the render below.
+
+Two things about the mask, both measured rather than assumed:
+
+- **A still mask is the reliable path.** The one shipped in `examples/` is a
+  blob covering the subject. It is what the demo clip uses and it holds for
+  the whole clip.
+- **A tracked mask video drifts.** `scripts/make_mask.py` can build a
+  per-frame mask by subtracting a temporal-median background, and it looks
+  right, but its alignment with the source wanders by up to ±15 frames
+  (measured by mask/dancer IoU, which stays between 0.08 and 0.28). The
+  swap then lands on the wrong part of the shot in the later frames. It is
+  wired up and reachable over the API (`mask_video=`), but it is not the
+  default, and the web UI only accepts a still image.
+
+The reference binding matters as much as the mask: node 136's prompt is a
+*link* to node 772, whose value ends with "The face is the face of the person
+in `<Picture 1>`". Replacing that link with a plain string drops the binding
+and the model regenerates the original subject — the swap appears to succeed
+while nothing has been swapped. `web/server.py` merges your text into node
+772 and leaves the link intact.
+
+### Running it on your own machine
+
+Two limits are worth knowing before you start:
+
+- **One render at a time.** H3 needs ~13.5 GB of VRAM; a second concurrent
+  render on a 16 GB card gets the daemon OOM-killed. The app refuses a
+  second render with HTTP 429 rather than fall over.
+- **Give the ComfyUI daemon `--async-offload`.** The H3 UNet (21 GB) and the
+  Qwen3-VL encoder (15 GB) will otherwise be mmapped into RAM, which on a
+  32 GB machine with a full swap gets the daemon killed mid-render. The
+  systemd unit in `deploy/systemd/` sets it.
 
 ---
 

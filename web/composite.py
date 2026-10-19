@@ -177,19 +177,68 @@ def _iter_frames(path: Path, width: int, height: int, fps: float):
             )
 
 
+def _grow(mask: np.ndarray, rounds: int) -> np.ndarray:
+    """Dilate a boolean mask by `rounds` 4-connected steps."""
+    out = mask.copy()
+    for _ in range(rounds):
+        nxt = out.copy()
+        nxt[1:, :] |= out[:-1, :]
+        nxt[:-1, :] |= out[1:, :]
+        nxt[:, 1:] |= out[:, :-1]
+        nxt[:, :-1] |= out[:, 1:]
+        out = nxt
+    return out
+
+
+def _regenerated_region(
+    src_frame: np.ndarray, gen_frame: np.ndarray, mask: np.ndarray,
+    threshold: float, min_grow: int, max_grow: int,
+) -> np.ndarray:
+    """The part of the frame the model actually replaced.
+
+    The controlnet mask is a soft hint: H3 replaces the whole subject, not
+    just the pixels inside the mask. Compositing with the raw mask would
+    therefore paste the original subject back over most of the new one and
+    produce a hybrid.
+
+    So measure where the render actually differs from the source, keep the
+    changed pixels that are connected to the mask, and use THAT as the
+    composite region. The un-regenerated background then comes from the
+    source untouched, which is what "the rest of the shot survives" means.
+    """
+    diff = np.abs(src_frame - gen_frame).mean(axis=2)
+    changed = diff > threshold
+    # Keep only the changed pixels near the mask, so unrelated drift in the
+    # background does not get pulled into the composite region.
+    near = _grow(mask, max_grow)
+    region = changed & near
+    if not region.any():
+        return mask
+    # Fill the holes: a subject is a solid blob, and a speckled region
+    # would let the original subject show through between pixels.
+    return _grow(region, min_grow)
+
+
 def composite_swap(
     generated: Path,
     source: Path,
     mask: Path,
     out_path: Path,
     feather_px: int = 0,
+    follow_regeneration: bool = True,
+    change_threshold: float = 18.0,
 ) -> Path:
     """Composite a generated swap render over its source, honouring the mask.
 
-    Inside the mask the generated frame is used; outside it the source frame
-    is used, so the untouched part of the shot stays pixel-identical.
+    Inside the composite region the generated frame is used; outside it the
+    source frame is used, so the untouched part of the shot stays
+    pixel-identical.
 
-    ``feather_px`` optionally blends across the mask edge. 0 (the default)
+    ``follow_regeneration`` (default) expands the composite region to cover
+    what the model actually replaced, which is the whole subject rather
+    than just the mask. Set it False to composite strictly by the mask.
+
+    ``feather_px`` optionally blends across the region edge. 0 (the default)
     gives a hard boundary, which is what makes the outside region exactly
     equal to the source.
     """
@@ -266,6 +315,17 @@ def composite_swap(
                     frame_mask = last_frame_mask
             else:
                 frame_mask = mask_bool
+            if frame_mask is None:
+                # No mask resolved for this frame: keep the whole source
+                # rather than guessing a region.
+                stdin.write(np.clip(src_frame, 0, 255).astype(np.uint8).tobytes())
+                written += 1
+                continue
+            if follow_regeneration:
+                frame_mask = _regenerated_region(
+                    src_frame, gen_frame, frame_mask, change_threshold,
+                    min_grow=6, max_grow=60,
+                )
             alpha3 = frame_mask.astype(np.float32)[:, :, None]
             merged = src_frame.astype(np.float32) * (1.0 - alpha3) + \
                 gen_frame.astype(np.float32) * alpha3
