@@ -379,7 +379,7 @@
   "821": {
     "class_type": "LoadImage",
     "inputs": {
-      "image": "swap_mask.png"
+      "image": "swap_mask_example.png"
     }
   },
   "820": {
