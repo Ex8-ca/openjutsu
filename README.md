@@ -114,6 +114,21 @@ The build needs these on disk (all open-weights):
 | `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | 14.6 GB | same repo → `text_encoders/` |
 | `minimax_h3_fun_controlnet_union_pruned_int8_convrot.safetensors` | 2.3 GB | same repo → `model_patches/` |
 
+### Tuned settings for the source-video + reference-image demo
+
+The demo (`examples/output/openjutsu_demo_v3.mp4`) was produced with:
+
+| Setting | Value |
+|---|---|
+| Source video | downscaled to 864×480, 5.2 s, 24 fps |
+| Reference image 1 | Marc's living-room photo (3072×4080 → crop center → 832×832) |
+| Reference image 2 | first frame of the source video at 832×462 (locks scene identity) |
+| Controlnet strength | 1.8 |
+| Prompt | detailed subject + scene description |
+| Workflow node 174 | LoadVideo (input → first ref file) |
+| Workflow node 900 | LoadImage (Marc's living-room ref) |
+| Workflow node 901 | LoadImage (source frame as scene ref) |
+
 ### 2. ComfyUI
 
 Install ComfyUI 0.39.0+ with the bundled `MiniMaxH3ReferenceToVideo` and

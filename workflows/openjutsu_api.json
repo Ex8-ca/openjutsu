@@ -86,8 +86,8 @@
         0
       ],
       "latent_image": [
-        "1000",
-        0
+        "136",
+        1
       ]
     }
   },
@@ -135,11 +135,7 @@
       ],
       "fps": 24,
       "bit_depth": "auto",
-      "color_space": "sRGB",
-      "audio": [
-        "1000",
-        1
-      ]
+      "color_space": "sRGB"
     }
   },
   "131": {
@@ -173,7 +169,10 @@
         "120",
         0
       ],
-      "prompt": "A graceful dancer performing expressive contemporary dance in a sunlit wildflower meadow at golden hour. The character wears a flowing terracotta slip dress, hair swept back, arms extending outward. Overgrown grass and white wildflowers surround her, with dark trees in the background and warm lens flare. Soft cinematic lighting, shallow depth of field, painterly atmosphere, photorealistic motion preserved from reference.",
+      "prompt": [
+        "772",
+        0
+      ],
       "width": [
         "115",
         0
@@ -189,6 +188,10 @@
       "ref_image_size": "match",
       "ref_images.ref_image_0": [
         "900",
+        0
+      ],
+      "ref_images.ref_image_1": [
+        "901",
         0
       ]
     }
@@ -283,7 +286,7 @@
         "800",
         0
       ],
-      "strength": 1.3,
+      "strength": 1.8,
       "start_percent": 0,
       "end_percent": 1
     }
@@ -380,21 +383,16 @@
       "image": "dancer_ref.png"
     }
   },
-  "1000": {
-    "class_type": "VRGDG_MiniMaxH3AudioDrive",
+  "772": {
+    "class_type": "PrimitiveString",
     "inputs": {
-      "av_latent": [
-        "136",
-        1
-      ],
-      "source_audio": [
-        "709",
-        1
-      ],
-      "audio_vae": [
-        "120",
-        0
-      ]
+      "value": "An older Caucasian man with short white/gray hair and medium build, wearing a plain white short-sleeved t-shirt and gray athletic shorts. He is in a dark-walled rage room with a yellow angry-smiley logo and SMASH IT signs. He swings a metal pipe at a large pane of glass. Cinematic lighting, dark moody atmosphere with bright spotlight, photorealistic motion preserved from the source video."
+    }
+  },
+  "901": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "source_frame_832.png"
     }
   }
 }
