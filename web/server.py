@@ -33,6 +33,7 @@ if str(_COMFYUI_VENV_SITE) not in sys.path:
 os.environ["COMFY_BASE_URL"] = os.environ.get("COMFY_BASE_URL", "http://127.0.0.1:8189")
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
@@ -76,6 +77,16 @@ def create_app() -> FastAPI:
     from comfy_sdk import Comfy  # imported lazily so the COMFY_BASE_URL env is set
 
     app = FastAPI(title="Openjutsu", version="0.1.0")
+
+    # CORS — local dev server, allow any origin so the page can be loaded
+    # from a Hermes browser bridge / Tailscale proxy and still POST to /api/*.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+        allow_credentials=False,
+    )
 
     # Serve /static/* from the local static/ folder (CSS, JS).
     app.mount("/static", StaticFiles(directory=str(STATIC_ROOT)), name="static")
