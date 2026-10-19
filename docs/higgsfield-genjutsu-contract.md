@@ -15,7 +15,8 @@ Genjutsu ships **two** modes, and the second one is the interesting one.
 > **Object Swap** changes a selected character, outfit, product, location or
 > object while **preserving the rest of the original shot**.
 
-Openjutsu currently implements Motion Transfer only. Object Swap is the gap.
+Openjutsu implements **both** modes. Motion Transfer is the default; Object
+Swap is the second tab in the web UI.
 
 ## What Object Swap means for us
 
@@ -28,8 +29,37 @@ The H3 Fun ControlNet-Union we already ship has a second path we do not use:
 > rest of the frame stays fixed.
 
 That is Object Swap, in the same weights we already have, with no new model
-downloads. Our `mask` semantics match the product's: the swapped region is
-regenerated; everything else is pixel-identical to the source.
+downloads.
+
+### The controlnet mask is a hint, not a composite
+
+ComfyUI's implementation computes `visibility = 1.0 - (mask > 0.5)` and
+concatenates `[visibility_latent, masked_latent]` onto the controlnet hint.
+The whole frame is regenerated and merely *steered* toward the source, so
+every pixel drifts a little, not just the masked region.
+
+Measured on a real render (864x480, 122 frames, mean absolute difference
+against the source):
+
+| | inside mask | outside mask | selectivity |
+|---|---|---|---|
+| raw H3 output | 22.43 | 17.72 | 1.27x |
+
+1.27x is not spatial selectivity — the swap is not actually swapping. So
+`web/composite.py` composites in post: the source frame is kept everywhere
+outside the mask and the regenerated frame is used only inside it.
+
+| | inside mask | outside mask | selectivity |
+|---|---|---|---|
+| after composite | 22.64 | **2.49** | **9.10x** |
+
+The residual 2.49 outside the mask is H.264 re-encode loss, not leakage:
+re-encoding the *source* through the same encoder gives 2.41. The source's
+audio is copied with `-c:a copy`, so it stays bit-exact (measured 0.00 dB
+RMS delta, correlation 1.0000).
+
+That is what makes "the rest of the shot survives" literally true rather than
+approximately true.
 
 ComfyUI 0.39.0 also ships `SAM3_VideoTrack` and `SAM3_TrackToMask` in core,
 which can produce that mask from a text prompt across a clip (the SAM3 weights

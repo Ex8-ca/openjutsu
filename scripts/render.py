@@ -50,6 +50,26 @@ INPUT_NODE_ID = "174"   # LoadVideo node in the workflow
 
 
 def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="render.py",
+        description="Submit the Openjutsu motion-transfer workflow via the Comfy SDK.",
+    )
+    parser.add_argument(
+        "--workflow", default=str(WORKFLOW),
+        help="path to the API-format workflow JSON (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--video", default=str(VIDEO),
+        help="source video to transfer motion from (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--out", default=str(OUT),
+        help="directory to write the rendered video into (default: %(default)s)",
+    )
+    args = parser.parse_args()
+
     # CRITICAL: set COMFY_BASE_URL BEFORE constructing the client so the SDK
     # picks up our proxy URL instead of defaulting to Comfy Cloud (which
     # requires an API key).
@@ -60,18 +80,22 @@ def main() -> int:
     print(f"Using COMFY_BASE_URL={base}")
     client = Comfy()
 
-    if not WORKFLOW.exists():
-        print(f"Workflow JSON not found: {WORKFLOW}", file=sys.stderr)
+    workflow_path = Path(args.workflow)
+    video_path = Path(args.video)
+    out_dir = Path(args.out)
+
+    if not workflow_path.exists():
+        print(f"Workflow JSON not found: {workflow_path}", file=sys.stderr)
         return 1
-    if not VIDEO.exists():
-        print(f"Source video not found: {VIDEO}", file=sys.stderr)
+    if not video_path.exists():
+        print(f"Source video not found: {video_path}", file=sys.stderr)
         return 1
 
     print("Loading workflow ...")
-    wf = client.workflows.from_file(str(WORKFLOW))
+    wf = client.workflows.from_file(str(workflow_path))
 
     print("Uploading source video ...")
-    asset = client.assets.from_file(str(VIDEO))
+    asset = client.assets.from_file(str(video_path))
 
     print(f"Setting input on node {INPUT_NODE_ID} ...")
     wf.set_input(INPUT_NODE_ID, "file", asset)
@@ -90,11 +114,11 @@ def main() -> int:
             last = s
 
     print(f"\nDone in {time.monotonic() - t0:.1f}s. Fetching outputs from node {OUTPUT_NODE_ID} ...")
-    OUT.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     outputs = job.get_outputs(OUTPUT_NODE_ID)
     print(f"  Found {len(outputs)} outputs")
     for output in outputs:
-        out_path = OUT / output.name
+        out_path = out_dir / output.name
         output.to_file(str(out_path))
         print(f"  Wrote {out_path}")
 

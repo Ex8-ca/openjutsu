@@ -13,4 +13,7 @@ fastapi>=0.146
 uvicorn>=0.54
 python-multipart>=0.0.32
 pillow>=12.0
+numpy>=2.0
 scipy>=1.18
+# ffmpeg/ffprobe must be on PATH — the Object Swap composite uses them to
+# region-lock the render and to copy the source audio without re-encoding.

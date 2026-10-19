@@ -367,14 +367,19 @@ def create_app() -> FastAPI:
                 if person_ref is not None:
                     wf.set_input("900", "image", client.assets.from_file(str(person_ref)))
                     wf.json["136"]["inputs"]["ref_images.ref_image_0"] = ["900", 0]
+                    # Keep the reference under the "person" role so the
+                    # general loop below re-uploads THIS file rather than
+                    # falling back to the bundled example. Without this the
+                    # uploaded reference is silently replaced by the
+                    # source's own first frame and the swap renders the
+                    # original subject.
+                    chosen = {"person": person_ref}
+                else:
+                    chosen = {}
                 for node_id in ("901", "902"):
                     # Remove the node entirely; leaving a hollow entry makes
                     # ComfyUI reject the whole graph ("no class_type").
                     wf.json.pop(node_id, None)
-                # `chosen` is emptied so the general loop below skips the
-                # scene/outfit slots entirely - calling set_input on a node
-                # that was just removed would re-create it as a hollow entry.
-                chosen = {}
                 swap_done = True
             else:
                 swap_done = False
