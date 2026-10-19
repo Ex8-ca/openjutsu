@@ -193,14 +193,6 @@
       "ref_images.ref_image_0": [
         "900",
         0
-      ],
-      "ref_images.ref_image_1": [
-        "901",
-        0
-      ],
-      "ref_images.ref_image_2": [
-        "902",
-        0
       ]
     }
   },
@@ -375,18 +367,6 @@
     "class_type": "PrimitiveString",
     "inputs": {
       "value": "A person dancing in a sunlit wildflower meadow at golden hour. The face is the face of the person in <Picture 1>. The body wears a flowing terracotta slip dress, hair swept back, arms extended. Overgrown grass, white wildflowers, a dense tree line, warm lens flare, golden hour lighting. Cinematic, photorealistic."
-    }
-  },
-  "901": {
-    "class_type": "LoadImage",
-    "inputs": {
-      "image": "source_frame_832.png"
-    }
-  },
-  "902": {
-    "class_type": "LoadImage",
-    "inputs": {
-      "image": "dancer_ref.png"
     }
   },
   "821": {

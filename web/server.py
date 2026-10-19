@@ -343,6 +343,26 @@ def create_app() -> FastAPI:
                 role = role or "person"
                 chosen.setdefault(role, Path(ref_path))
 
+            # Object Swap has exactly one reference: the new element. Wiring
+            # the source's own frames in as extra references makes H3 treat
+            # the original subject as another reference, and it wins over
+            # the swap — the masked region comes back unchanged.
+            if mode == MODE_SWAP:
+                for node_id in node_to_role.values():
+                    if node_id != "900":
+                        wf.json["136"]["inputs"].pop(
+                            "ref_images.ref_image_%s" % node_id[-1], None)
+                wf.json["136"]["inputs"].pop("ref_images.ref_image_0", None)
+                person_ref = chosen.get("person")
+                if person_ref is None and chosen:
+                    person_ref = next(iter(chosen.values()))
+                if person_ref is not None:
+                    wf.set_input("900", "image", client.assets.from_file(str(person_ref)))
+                    wf.json["136"]["inputs"]["ref_images.ref_image_0"] = ["900", 0]
+                for node_id in ("901", "902"):
+                    wf.json.pop(node_id, None)
+                chosen = {}
+
             for node_id, role in node_to_role.items():
                 source_path = chosen.get(role)
                 if source_path is None:
@@ -397,6 +417,33 @@ def create_app() -> FastAPI:
             for output in outputs:
                 dest = OUTPUT_DIR / output.name
                 output.to_file(str(dest))
+                # Object Swap: the controlnet's inpaint path is a hint, not a
+                # composite - the whole frame drifts a little, not just the
+                # masked region. Composite in post so the pixels outside the
+                # mask are byte-identical to the source. That is what makes
+                # "the rest of the shot survives" literally true.
+                if mode == MODE_SWAP and job.get("mask") and dest.suffix == ".mp4":
+                    try:
+                        from composite import composite_swap, have_ffmpeg
+                        if have_ffmpeg():
+                            mask_path = Path(job["mask"])
+                            comp = composite_swap(
+                                source_video=Path(job["source"]),
+                                generated_video=dest,
+                                mask_path=mask_path,
+                                out_path=OUTPUT_DIR / ("swapped_" + dest.name),
+                                mask_is_video=mask_path.suffix.lower() in (".mp4", ".mov", ".webm"),
+                            )
+                            comp_dest = OUTPUT_DIR / ("swapped_" + dest.name)
+                            comp_dest.replace(dest)
+                            job["composite"] = comp
+                            job["log"].append(
+                                "composited: in-mask diff {in_mask_diff:.1f}, "
+                                "out-of-mask diff {out_mask_diff:.1f}, "
+                                "coverage {mask_coverage:.1%}".format(**comp)
+                            )
+                    except Exception as exc:
+                        job["log"].append(f"composite skipped: {exc}")
                 label = "Output video" if output.name.endswith(".mp4") else output.name
                 job["outputs"].append({"name": output.name, "url": f"/outputs/{output.name}", "label": label})
             # Append the source still + first reference for the triptych
