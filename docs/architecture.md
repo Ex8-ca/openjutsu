@@ -204,3 +204,38 @@ Canny is a placeholder. Replace node `800` (Canny) with one of:
 All of these feed into `MiniMaxH3FunControlNetApply.control_video`
 unchanged. The H3 Fun ControlNet-Union was trained on all five and any
 of them work as a drop-in replacement.
+
+## Uploading reference images: use the SDK asset API, not bare filenames
+
+ComfyUI resolves a `LoadImage` filename against the **daemon's** input
+directory. The web app used to write uploads to a local directory and pass
+the bare filename in the workflow — which works only when the app shares a
+filesystem with the daemon. Point the app at a different `COMFYUI_INPUT_DIR`
+and every render fails with `Invalid image file`, because the daemon is
+looking for a file that was never put in front of it.
+
+The fix is to upload through the Comfy SDK asset API:
+
+```python
+wf.set_input(node_id, "image", client.assets.from_file(str(path)))
+```
+
+The proxy POSTs the bytes to the daemon's own `/upload/image` endpoint and
+substitutes the resulting filename at submit time, so the app no longer
+assumes a shared filesystem. The submitted graph shows the asset-resolved
+name:
+
+```
+900: {"image": "ref_3f4579a7_UNIQUE_test_ref.png"}
+```
+
+Uploads are staged locally under `web/staging/` first; the staged copy is
+what gets uploaded, and the staging directory is transient.
+
+**One gotcha worth knowing**: the proxy keeps a *persistent* asset store and
+dedups by content hash. If a file it has already seen is missing from the
+daemon's input directory, a re-upload of the same bytes is deduped and never
+written back — so the file stays missing and validation fails. If you delete
+files out from under the proxy, clear its asset store (or upload different
+bytes) as well. This is why an upload that "should" work can appear to be
+ignored.
