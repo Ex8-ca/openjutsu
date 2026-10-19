@@ -463,10 +463,42 @@ def create_app() -> FastAPI:
                     wf.set_input("822", "file", client.assets.from_file(str(mask_path)))
                     wf.json["820"]["inputs"]["image"] = ["824", 0]
                 else:
+                    # A still mask is loaded as an image (821). Node 820 must
+                    # be re-pointed at it — otherwise it keeps reading the
+                    # mask video on 824 and the uploaded mask is ignored.
                     wf.set_input("821", "image", client.assets.from_file(str(mask_path)))
+                    wf.json["820"]["inputs"]["image"] = ["821", 0]
 
-            # Patch the prompt
-            wf.set_input("136", "prompt", job["prompt"] or _DEFAULT_PROMPT)
+            # Patch the prompt.
+            #
+            # In the swap workflows node 136's prompt is a LINK to node 772,
+            # whose value is a template: a description plus the binding
+            # clause "The face is the face of the person in <Picture 1>".
+            # Overwriting 136 with a literal string replaces that link and
+            # drops the binding, so the model regenerates the original
+            # subject instead of the reference.
+            #
+            # So: keep the link, and merge the user's text into 772 while
+            # preserving the binding clause. If the user's text already names
+            # the reference, use it as the description; otherwise keep the
+            # template's description and append the user's text.
+            if mode == MODE_SWAP and "772" in wf.json:
+                template = str(wf.json["772"]["inputs"].get("value", "") or "")
+                binding = ""
+                for marker in ("The face is the face of the person in <Picture 1>",):
+                    if marker in template:
+                        binding = marker
+                        template = template.replace(marker, "").strip()
+                        break
+                text = (job["prompt"] or "").strip()
+                if text:
+                    description = text
+                else:
+                    description = template.strip().rstrip(".") or "A person in the scene"
+                merged = f"{description} {binding}".strip() if binding else description
+                wf.set_input("772", "value", merged)
+            else:
+                wf.set_input("136", "prompt", job["prompt"] or _DEFAULT_PROMPT)
 
             # Apply the quality selection to the ResolutionSelector.
             # 0.4 MP -> 864x480 (16:9), 0.13 MP -> 480x272.
