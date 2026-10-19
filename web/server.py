@@ -25,6 +25,7 @@ import glob
 import json
 import mimetypes
 import os
+import secrets
 import shutil
 import sys
 import time
@@ -207,6 +208,51 @@ def create_app() -> FastAPI:
     # We mount OUTPUT_DIR directly so it doesn't conflict with /static.
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     app.mount("/outputs", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs")
+
+    # The bundled example clips (demo reel, motion-transfer result, swap
+    # result) are worth serving too, so a judge can watch the results
+    # without rendering anything first.
+    _EXAMPLES = REPO_ROOT / "examples"
+    if _EXAMPLES.is_dir():
+        app.mount("/examples", StaticFiles(directory=str(_EXAMPLES)), name="examples")
+
+    # Optional shared-secret gate.
+    #
+    # The app renders video on the local GPU, so /api/generate is expensive
+    # and the app has no user accounts. When OPENJUTSU_TOKEN is set, the
+    # expensive endpoints require either ?token=... on the request or the
+    # OPENJUTSU_TOKEN cookie (set by visiting /?token=... once). This keeps
+    # the app usable on the LAN unchanged while making it safe to expose
+    # publicly for the contest demo.
+    #
+    # When the variable is unset the app is open, which is the right default
+    # for localhost / Tailscale-only use.
+    _TOKEN = os.environ.get("OPENJUTSU_TOKEN", "").strip()
+
+    def _token_ok(request) -> bool:
+        if not _TOKEN:
+            return True
+        supplied = request.query_params.get("token", "") or \
+            request.cookies.get("OPENJUTSU_TOKEN", "")
+        return secrets.compare_digest(supplied, _TOKEN)
+
+    @app.middleware("http")
+    async def token_gate(request, call_next):
+        if _TOKEN and request.url.path.startswith("/api/"):
+            if not _token_ok(request):
+                return JSONResponse(
+                    {"error": "unauthorized", "hint": "pass ?token=... or set the cookie"},
+                    status_code=401,
+                )
+        response = await call_next(request)
+        # Visiting /?token=... hands the browser the cookie so the SPA's
+        # XHR calls are authorised without leaking the token in every URL.
+        if _TOKEN and request.url.path == "/" and request.query_params.get("token") == _TOKEN:
+            response.set_cookie(
+                "OPENJUTSU_TOKEN", _TOKEN, max_age=60 * 60 * 24 * 7,
+                httponly=True, samesite="lax",
+            )
+        return response
 
     @app.get("/")
     async def index() -> FileResponse:

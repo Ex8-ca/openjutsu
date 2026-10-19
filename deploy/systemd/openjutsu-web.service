@@ -8,6 +8,12 @@ Environment=COMFYUI_ROOT=%h/nvme-data/.comfyui
 Environment=COMFYUI_INPUT_DIR=%h/nvme-data/.comfyui/input
 Environment=COMFYUI_VENV_SITE=%h/nvme-data/.comfyui/.venv/lib/python3.13/site-packages
 Environment=OPENJUTSU_OUTPUT_DIR=/home/marc/repos/openjutsu/web/outputs
+# Shared-secret gate for the expensive /api/* endpoints. Unset = open, which
+# is fine for LAN/Tailscale-only use. The token lives in this file, NOT in the
+# repo, so it is never published. Create it with:
+#   mkdir -p ~/.config/openjutsu
+#   printf 'OPENJUTSU_TOKEN=<token>\n' > ~/.config/openjutsu/web.env
+EnvironmentFile=-%h/.config/openjutsu/web.env
 WorkingDirectory=/home/marc/repos/openjutsu
 ExecStart=%h/nvme-data/.comfyui/.venv/bin/python /home/marc/repos/openjutsu/web/server.py --host 0.0.0.0 --port 8765
 Restart=always
