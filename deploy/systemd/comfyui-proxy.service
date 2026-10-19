@@ -1,18 +1,14 @@
 [Unit]
-Description=Comfy API proxy (port 8189 → 8188) for Openjutsu
-After=network.target
-Requires=comfyui-daemon.service
+Description=Comfy API proxy (port 8189 -> 8188) for Openjutsu
 After=comfyui-daemon.service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/marc/nvme-data/.comfyui
-ExecStart=/home/marc/nvme-data/.comfyui/.venv/bin/comfy-api-proxy run --comfyui http://127.0.0.1:8188 --host 0.0.0.0 --port 8189 --comfyui-base-dir /home/marc/nvme-data/.comfyui --allow-insecure-bind
+Environment=COMFYUI_ROOT=%h/nvme-data/.comfyui
+WorkingDirectory=%h/nvme-data/.comfyui
+ExecStart=%h/nvme-data/.comfyui/.venv/bin/comfy-api-proxy run --comfyui http://127.0.0.1:8188 --host 0.0.0.0 --port 8189 --comfyui-base-dir %h/nvme-data/.comfyui --allow-insecure-bind
 Restart=always
-RestartSec=2
-StandardOutput=append:/home/marc/nvme-data/cinematic/openjutsu/proxy.log
-StandardError=append:/home/marc/nvme-data/cinematic/openjutsu/proxy.log
-Environment=PYTHONPATH=
+RestartSec=3
 
 [Install]
 WantedBy=default.target

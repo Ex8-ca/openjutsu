@@ -3,41 +3,77 @@
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-const refs = []; // File[]
+// refs is now {person?: File, scene?: File, outfit?: File}
+const refs = {};
 
-// -- reference image upload + thumbnail grid -------------------------------
-const thumbGrid = $("#ref-list");
-const renderThumbs = () => {
-  thumbGrid.innerHTML = "";
-  refs.forEach((f, i) => {
-    const url = URL.createObjectURL(f);
+// -- reference image upload (per role slot) -----------------------------
+function renderThumb(slot) {
+  const slotEl = document.querySelector(`.ref-slot[data-role="${slot}"]`);
+  const thumb = slotEl.querySelector(".thumb");
+  thumb.innerHTML = "";
+  if (refs[slot]) {
+    const url = URL.createObjectURL(refs[slot]);
     const div = document.createElement("div");
     div.className = "thumb";
     div.innerHTML = `
-      <img src="${url}" alt="${f.name}">
+      <img src="${url}" alt="${refs[slot].name}">
       <button class="x" type="button" aria-label="remove">×</button>
     `;
     div.querySelector(".x").addEventListener("click", () => {
       URL.revokeObjectURL(url);
-      refs.splice(i, 1);
-      renderThumbs();
+      refs[slot] = null;
+      renderThumb(slot);
     });
-    thumbGrid.appendChild(div);
-  });
-};
-$("#ref-add").addEventListener("change", (e) => {
-  for (const f of e.target.files) {
-    if (refs.length >= 9) break;
-    refs.push(f);
+    thumb.appendChild(div);
   }
-  e.target.value = "";
-  renderThumbs();
+}
+
+$$(".ref-slot").forEach((slotEl) => {
+  const role = slotEl.dataset.role;
+  const input = slotEl.querySelector('input[type="file"]');
+  const btn = slotEl.querySelector(".add-btn");
+  btn.addEventListener("click", () => input.click());
+  input.addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (f) {
+      refs[role] = f;
+      renderThumb(role);
+    }
+    e.target.value = "";
+  });
 });
 
 // -- prompt toggle --------------------------------------------------------
 const promptEl = $("#prompt");
 $("#prompt-on").addEventListener("change", (e) => {
   promptEl.disabled = !e.target.checked;
+});
+
+// -- prompt enhance --------------------------------------------------------
+$("#enhance-prompt").addEventListener("click", async () => {
+  const btn = $("#enhance-prompt");
+  const orig = promptEl.value.trim();
+  if (!orig) {
+    promptEl.value = "A natural-looking scene";
+  }
+  btn.disabled = true;
+  btn.textContent = "✨ Enhancing…";
+  try {
+    const resp = await fetch("/api/enhance-prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `prompt=${encodeURIComponent(promptEl.value)}`
+    });
+    if (resp.ok) {
+      const d = await resp.json();
+      promptEl.value = d.enhanced || promptEl.value;
+    }
+  } catch (e) {
+    // Silent: keep what user typed
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✨ Enhance";
+  }
 });
 
 // -- generate ------------------------------------------------------------
@@ -51,7 +87,10 @@ goBtn.addEventListener("click", async () => {
 
   const fd = new FormData();
   fd.append("source_video", video);
-  refs.forEach((f) => fd.append("ref_images", f));
+  for (const role of ["person", "scene", "outfit"]) {
+    if (refs[role]) fd.append("ref_images", refs[role]);
+    if (refs[role]) fd.append("refs_role", role);
+  }
   fd.append("prompt", $("#prompt-on").checked ? $("#prompt").value : "");
   fd.append("quality", $("#quality").value);
 
@@ -96,11 +135,25 @@ goBtn.addEventListener("click", async () => {
       $("#log").textContent = data.log.join("\n");
     }
     if (data.status === "complete") {
+      // Triptych: source + ref + output (Task 3)
+      const comp = document.createElement("div");
+      comp.className = "comparison";
       for (const o of data.outputs) {
+        const wrap = document.createElement("figure");
+        const cap = o.label || o.name;
+        wrap.innerHTML = `<img src="${o.url}"><figcaption>${cap}</figcaption>`;
+        comp.appendChild(wrap);
+      }
+      $("#outputs").appendChild(comp);
+
+      // Inline playback of the final video
+      const videoOut = data.outputs.find(o => o.name.endsWith(".mp4"));
+      if (videoOut) {
         const v = document.createElement("video");
-        v.src = o.url;
+        v.src = videoOut.url;
         v.controls = true;
         v.autoplay = false;
+        v.style.marginTop = "16px";
         $("#outputs").appendChild(v);
       }
       goBtn.disabled = false; goBtn.textContent = "Generate ✨";

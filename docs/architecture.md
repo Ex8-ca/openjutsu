@@ -6,18 +6,46 @@ This doc collects the deeper rationale behind the node choices and the
 ## Why Canny (and not Pose or Depth)
 
 The official ComfyUI template ships a **Pose** preprocessor
-(`SDPose Video Pose Extractor [Multi-Person]`) but the SDPose custom node
-isn't bundled with a default ComfyUI install. Depth Anything 3 is in core
-but its model weights aren't pre-downloaded in the example workflow.
+(`SDPose Video Pose Extractor [Multi-Person]`) built on SDPose. As of
+ComfyUI 0.39.0 the SDPose nodes *are* bundled in core
+(`comfy_extras/nodes_sdpose.py` — `SDPoseKeypointExtractor`,
+`SDPoseDrawKeypoints`), and the weights are downloadable from
+[Comfy-Org/SDPose](https://huggingface.co/Comfy-Org/SDPose).
 
-Canny is built into `comfy_extras/nodes_canny.py` and uses **kornia** under
-the hood. No extra weights. The model produces reliable edges from any
-source frame and gives the controlnet a stable structural cue without losing
-the camera/scene context the way Pose would for a single-person subject.
+Canny is still the default here because it is built into
+`comfy_extras/nodes_canny.py`, uses **kornia** under the hood and needs no
+extra weights at all. The model produces reliable edges from any source frame
+and gives the controlnet a stable structural cue without losing the
+camera/scene context the way Pose would for a single-person subject.
 
-For higher-fidelity control on a beefier GPU, swap the Canny node for the
-Depth Anything 3 tutorial preprocessor or install SDPose and wire its pose
-frames in.
+Swapping the preprocessor is a one-node change (see "How to swap
+preprocessors" below). The H3 Fun ControlNet-Union was trained on Canny,
+Depth, HED, MLSD and Pose, so any of them is a drop-in replacement for node
+`800`.
+
+## The controlnet's other modes we are not using yet
+
+`MiniMaxH3FunControlNetApply` also accepts a **`mask`** and a
+**`source_video`**. That is the Union checkpoint's video-inpainting path:
+regions marked `1` in the mask are regenerated while the rest of the frame
+stays fixed, with the source video supplying the surrounding context. It is
+the natural fit for Genjutsu's second mode, Object Swap — replace one element
+in a shot and keep the camera move, the timing and everything else identical.
+
+ComfyUI 0.39.0 also ships `SAM3_VideoTrack` and `SAM3_TrackToMask` in core
+(`comfy_extras/nodes_sam3.py`), which can produce exactly that mask from a
+text prompt across a clip. The SAM3 weights are not in core, so this path
+needs the community SAM3 pack on top.
+
+## The controlnet checkpoint version
+
+The Union checkpoint we ship is v1 (5 control blocks). A v2 checkpoint
+(`minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors`,
+4.53 GB) is published alongside it and is the recommended one for new work.
+ComfyUI reads the block count and the `control_blocks_places` metadata to tell
+the two apart, and v2 additionally supports `inpaint_post_norm`, which
+changes how masked holes are filled — relevant to the inpaint path above.
+The v1 file is what this repo's demo was rendered with.
 
 ## Why downscale Canny to 432×240
 
@@ -43,7 +71,8 @@ description, but **it does not preserve the source clip's audio**. The
 demo output's audio is H3-generated.
 
 The `comfyui-vrgamedevgirl` pack ships a `VRGDG_MiniMaxH3AudioDrive`
-node that locks the source audio via three steps:
+node (in `optional_nodes/ltx_minimax_tools/`) that locks the source audio
+via three steps:
 
 1. Encode the source audio through the H3 audio VAE into H3's AV latent
    audio slot.
@@ -64,12 +93,20 @@ ambient / music content.**
 **Why the upstream node can't load out of the box**: this build targets
 a 16 GB card with torch 2.14.1+cu130. The only `torchaudio` cu130
 wheels (2.9.0, 2.9.1, 2.10.0, 2.11.0) all require torch 2.9 or 2.10 and
-break the torchvision/torch ABI when forced. The Openjutsu build
-works around it: the shipped workflow uses the upstream node, and the
-upstream node file in `comfyui-vrgamedevgirl/` carries a one-function
-patch that replaces `torchaudio.functional.resample` with a
-`scipy.signal.resample_poly` equivalent. Revert the patch (it's three
-commented lines) once you can install torchaudio.
+break the torchvision/torch ABI when forced.
+
+The Openjutsu build works around it with a patch file,
+`patches/vrgdg-minimax-h3-audio-drive-torchaudio.patch`, which replaces the
+single `torchaudio.functional.resample` call with a
+`scipy.signal.resample_poly` equivalent (scipy is already a ComfyUI
+dependency). `scripts/setup.sh` applies it to the pack after cloning.
+Revert it — it's three commented lines — once torchaudio ships a compatible
+cu130 wheel.
+
+The patched node lives in the pack, not in this repo, because the pack is
+AGPL-3.0 and vendoring its code here would change this repo's licence. The
+patch is a diff against the upstream file and applies cleanly to a fresh
+clone.
 
 ## Why `--lowvram` and **not** `--disable-smart-memory`
 
@@ -103,20 +140,43 @@ template with the following substitutions:
 | Removed | Reason |
 |---|---|
 | `MarkdownNote` × 6 | Documentation-only nodes; raise errors when submitted via API |
-| `SDPose Video Pose Extractor` (`622cceeb-...`) | Custom node not bundled with default ComfyUI |
+| `SDPose Video Pose Extractor` (`622cceeb-...`) | Subgraph wrapper; the default control is Canny, which needs no extra weights |
 | `PreviewImage` | Documented a step that's covered by `SaveVideo` output |
 
 | Added | Reason |
 |---|---|
-| `LoadImage` (`900`) → `dancer_ref.png` | Character reference for `ref_image_0` |
+| `LoadImage` (`900`) → `dancer_ref.png` | Person reference for `ref_image_0` |
+| `LoadImage` (`901`) → `source_frame_832.png` | Scene anchor for `ref_image_1` |
+| `LoadImage` (`902`) → `dancer_ref.png` | Outfit slot for `ref_image_2` |
 | `ImageScale` (`850`) → 432×240 | Fits Canny's intermediate tensors in 16 GB VRAM |
 
 | Patched | Reason |
 |---|---|
-| `MiniMaxH3ReferenceToVideo.vae_name` | `minimax_h3_video_vae_int8_convrot.safetensors` (Marc has this; template referenced an int8 ConvRot variant which is the same file) |
-| `MiniMaxH3ReferenceToVideo.prompt` | 4-sentence scene description |
-| `MiniMaxH3FunControlNetApply.strength` | 1.0 → 1.3 |
+| `MiniMaxH3ReferenceToVideo.vae_name` | `minimax_h3_video_vae_int8_convrot.safetensors` (the template referenced an int8 ConvRot variant which is the same file) |
+| `MiniMaxH3ReferenceToVideo.prompt` | 4-sentence scene description, on a `PrimitiveString` node so the web UI can override it |
+| `MiniMaxH3FunControlNetApply.strength` | 1.0 → 1.8 (the tuned value: strong enough to lock motion, loose enough to let identity through) |
+| `CreateVideo.audio` | Wired to the decoded audio so the output always has an audio track |
 | `LoadVideo.file` | `dancer_field_pose.mp4` (ComfyUI's official demo) |
+
+### Two workflow files
+
+| File | Audio |
+|---|---|
+| `workflows/openjutsu_api.json` | H3's own generated audio. No third-party node needed. |
+| `workflows/openjutsu_api_audio.json` | The source clip's audio, preserved, via `VRGDG_MiniMaxH3AudioDrive`. Needs the `comfyui-vrgamedevgirl` pack. |
+
+The web UI picks the second when the VRGDG node is present on the daemon and
+falls back to the first otherwise. Set `OPENJUTSU_WORKFLOW=core` or `=audio`
+to force one.
+
+### Reference slots and validation
+
+The three `LoadImage` nodes are wired to `ref_images.ref_image_0..2` on the
+H3 node. If a slot's file is missing from ComfyUI's `input/` directory,
+ComfyUI rejects the *entire* prompt with `Invalid image file` — it does not
+skip the node. The web UI therefore always points every slot at a file that
+exists (falling back to a bundled example) and removes the `ref_image_N` link
+for slots the user did not fill, so H3 never sees an unwanted reference.
 
 ## How to extend to multiple reference images
 

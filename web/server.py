@@ -4,8 +4,16 @@ directory, then the workflow is submitted via the Comfy SDK pointed at
 comfy-api-proxy (port 8189 → ComfyUI daemon on 8188).
 
 Run:
-    PYTHONPATH="" /home/marc/nvme-data/.comfyui/.venv/bin/python \\
-        /home/marc/nvme-data/cinematic/openjutsu/web/server.py
+    python web/server.py --host 0.0.0.0 --port 8765
+
+Environment (all optional, sensible defaults derived from the repo):
+    COMFY_BASE_URL       Comfy API v2 base URL.        default http://127.0.0.1:8189
+    COMFYUI_ROOT         ComfyUI install root.          default /home/marc/nvme-data/.comfyui
+    COMFYUI_INPUT_DIR    ComfyUI input/ directory.      default $COMFYUI_ROOT/input
+    COMFYUI_VENV_SITE    site-packages dir holding comfy_sdk.
+                         default $COMFYUI_ROOT/.venv/lib/python*/site-packages
+    OPENJUTSU_OUTPUT_DIR Where rendered outputs are written.
+                         default <repo>/web/outputs
 
 Listens on http://0.0.0.0:8765 by default. Override with --host / --port.
 """
@@ -13,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import glob
 import json
 import mimetypes
 import os
@@ -22,12 +31,28 @@ import time
 import uuid
 from pathlib import Path
 
+# Repository root = parent of the web/ directory this file lives in.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# ComfyUI install root. Everything else derives from it.
+COMFYUI_ROOT = Path(os.environ.get("COMFYUI_ROOT", "/home/marc/nvme-data/.comfyui")).resolve()
+
+
+def _default_venv_site() -> str | None:
+    """Locate the site-packages dir that provides comfy_sdk, if any."""
+    explicit = os.environ.get("COMFYUI_VENV_SITE")
+    if explicit:
+        return explicit
+    pattern = str(COMFYUI_ROOT / ".venv" / "lib" / "python*" / "site-packages")
+    matches = sorted(glob.glob(pattern))
+    return matches[0] if matches else None
+
+
 # Make sure the ComfyUI venv site-packages are on sys.path so we can import comfy_sdk.
-_REPO = Path("/home/marc/repos/openjutsu")
-_COMFYUI_VENV_SITE = Path("/home/marc/nvme-data/.comfyui/.venv/lib/python3.13/site-packages")
+_VENV_SITE = _default_venv_site()
 os.environ["PYTHONPATH"] = ""
-if str(_COMFYUI_VENV_SITE) not in sys.path:
-    sys.path.insert(0, str(_COMFYUI_VENV_SITE))
+if _VENV_SITE and _VENV_SITE not in sys.path:
+    sys.path.insert(0, _VENV_SITE)
 
 # IMPORTANT: set COMFY_BASE_URL BEFORE constructing the SDK client.
 os.environ["COMFY_BASE_URL"] = os.environ.get("COMFY_BASE_URL", "http://127.0.0.1:8189")
@@ -38,13 +63,47 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse  # n
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 
-REPO_ROOT = _REPO
 WEB_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = WEB_ROOT / "static"
 WORKFLOW_PATH = REPO_ROOT / "workflows" / "openjutsu_api.json"
+AUDIO_WORKFLOW_PATH = REPO_ROOT / "workflows" / "openjutsu_api_audio.json"
 
-COMFYUI_INPUT_DIR = Path("/home/marc/nvme-data/.comfyui/input")
-OUTPUT_DIR = Path("/home/marc/nvme-data/cinematic/openjutsu/web/outputs")
+# The source-audio-preserving variant needs the VRGDG custom node. When that
+# pack is not installed the node type does not exist and ComfyUI rejects the
+# whole prompt, so probe the daemon's object_info and pick accordingly.
+# Override with OPENJUTSU_WORKFLOW=core|audio to force a variant.
+_WORKFLOW_CHOICE = os.environ.get("OPENJUTSU_WORKFLOW", "auto").lower()
+
+
+def _daemon_object_info(node_type: str) -> bool:
+    """True if the ComfyUI daemon exposes `node_type`."""
+    import urllib.error
+    import urllib.request
+
+    base = os.environ.get("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/")
+    url = f"{base}/object_info/{node_type}"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            body = resp.read().decode("utf-8", "replace")
+        return bool(body.strip()) and node_type in body
+    except Exception:
+        return False
+
+
+def _resolve_workflow_path() -> Path:
+    """Pick the workflow file to submit."""
+    if _WORKFLOW_CHOICE in ("core", "audio"):
+        return AUDIO_WORKFLOW_PATH if _WORKFLOW_CHOICE == "audio" else WORKFLOW_PATH
+    if AUDIO_WORKFLOW_PATH.exists() and _daemon_object_info("VRGDG_MiniMaxH3AudioDrive"):
+        return AUDIO_WORKFLOW_PATH
+    return WORKFLOW_PATH
+
+COMFYUI_INPUT_DIR = Path(
+    os.environ.get("COMFYUI_INPUT_DIR", str(COMFYUI_ROOT / "input"))
+).resolve()
+OUTPUT_DIR = Path(
+    os.environ.get("OPENJUTSU_OUTPUT_DIR", str(REPO_ROOT / "web" / "outputs"))
+).resolve()
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # In-memory job registry. Single-process dev server; replace with Redis/DB for production.
@@ -65,12 +124,47 @@ def _save_upload(prefix: str, upload: UploadFile, dest_dir: Path) -> Path:
     return dest
 
 
+# UI quality label -> target megapixels for the ResolutionSelector.
+_QUALITY_MEGAPIXELS = {
+    "864x480": 0.4,    # 16:9 -> 864x480
+    "480x272": 0.13,   # 16:9 -> 480x272
+}
+
 _DEFAULT_PROMPT = (
     "A graceful dancer performing expressive contemporary dance in a sunlit "
     "wildflower meadow at golden hour. The character wears a flowing terracotta "
     "slip dress, hair swept back, arms extended. The scene includes overgrown grass, "
     "white wildflowers, a dense tree line, and warm lens flare."
 )
+
+
+# Bundled example assets, copied into ComfyUI's input/ dir on demand so the
+# workflow's default slots always resolve. Keys are role names.
+_EXAMPLE_REFS = {
+    "person": "dancer_ref.png",
+    "scene": "source_frame_832.png",
+    "outfit": "dancer_ref.png",
+}
+
+
+def _fallback_ref_for(role: str) -> str | None:
+    """Return the name of a bundled example image for `role`, copying it into
+    ComfyUI's input/ directory if it is not already there. None if unavailable.
+    """
+    name = _EXAMPLE_REFS.get(role)
+    if not name:
+        return None
+    src = REPO_ROOT / "examples" / name
+    if not src.exists():
+        return None
+    dest = COMFYUI_INPUT_DIR / name
+    if not dest.exists():
+        try:
+            COMFYUI_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+        except OSError:
+            return None
+    return name
 
 
 def create_app() -> FastAPI:
@@ -104,10 +198,16 @@ def create_app() -> FastAPI:
     async def healthz() -> dict:
         return {"status": "ok", "time": time.time()}
 
+    @app.post("/api/enhance-prompt")
+    async def enhance_prompt_endpoint(prompt: str = Form(...)) -> dict:
+        from prompt_enhance import enhance_prompt
+        return {"enhanced": enhance_prompt(prompt)}
+
     @app.post("/api/generate")
     async def generate(
         source_video: UploadFile = File(...),
         ref_images: list[UploadFile] = File(default=[]),
+        refs_role: list[str] = Form(default=[]),
         prompt: str = Form(default=""),
         quality: str = Form(default="864x480"),
     ) -> dict:
@@ -120,6 +220,11 @@ def create_app() -> FastAPI:
             if ref.filename:
                 ref_paths.append(_save_upload("ref", ref, COMFYUI_INPUT_DIR))
 
+        # refs_role comes through as a parallel list (e.g., ["person","scene","outfit"])
+        # to label which ref slot each file belongs to. Pad to length of ref_paths.
+        role_labels = list(refs_role) + [""] * (len(ref_paths) - len(refs_role))
+        role_labels = role_labels[:len(ref_paths)]
+
         job_id = uuid.uuid4().hex
         JOBS[job_id] = {
             "id": job_id,
@@ -127,6 +232,7 @@ def create_app() -> FastAPI:
             "created": time.time(),
             "source": str(video_path),
             "refs": [str(p) for p in ref_paths],
+            "refs_role": role_labels,
             "prompt": prompt.strip(),
             "quality": quality,
             "log": [],
@@ -159,20 +265,70 @@ def create_app() -> FastAPI:
         try:
             job["status"] = "submitting"
             client = Comfy()
-            wf = client.workflows.from_file(str(WORKFLOW_PATH))
+            workflow_path = _resolve_workflow_path()
+            job["log"].append(f"workflow: {workflow_path.name}")
+            wf = client.workflows.from_file(str(workflow_path))
 
             # Source video via LoadVideo (node 174) — accepts asset handle
             source_asset = client.assets.from_file(JOBS[job_id]["source"])
             wf.set_input("174", "file", source_asset)
 
-            # Reference images via LoadImage (node 900) — accepts a filename
-            # string relative to ComfyUI's input dir (which is where
-            # _save_upload already wrote them).
-            if job["refs"]:
-                wf.set_input("900", "image", Path(job["refs"][0]).name)
+            # Save a still frame of the source for triptych display
+            import subprocess
+            job_id_safe = job_id
+            src_still = OUTPUT_DIR / f"job_{job_id_safe}_source.png"
+            try:
+                # ffmpeg grabs one frame at t=1s; works for mp4/mov/avi
+                subprocess.run(
+                    ["ffmpeg", "-y", "-ss", "1", "-i", JOBS[job_id_safe]["source"],
+                     "-frames:v", "1", str(src_still)],
+                    check=True, capture_output=True, timeout=30
+                )
+            except Exception:
+                # Fallback: copy the source directly
+                import shutil
+                shutil.copy(JOBS[job_id_safe]["source"], src_still)
+
+            # Reference images — wire each into node 900/901/902 by role
+            # (person/scene/outfit).
+            #
+            # Every slot must resolve to a file that actually exists in
+            # ComfyUI's input/ directory, or ComfyUI rejects the entire
+            # prompt with "Invalid image file". Slots the user did not fill
+            # are therefore pointed at a bundled example asset, and their
+            # `ref_images.ref_image_N` link is removed so H3 does not see a
+            # reference the user never asked for.
+            role_to_node = {"person": "900", "scene": "901", "outfit": "902"}
+            node_to_role = {v: k for k, v in role_to_node.items()}
+            roles = job.get("refs_role") or []
+            roles += [""] * (len(job["refs"]) - len(roles))
+
+            # Map role -> uploaded filename (first upload wins for a role).
+            chosen: dict[str, str] = {}
+            for ref_path, role in zip(job["refs"], roles):
+                role = role or "person"
+                chosen.setdefault(role, Path(ref_path).name)
+
+            for node_id, role in node_to_role.items():
+                filename = chosen.get(role)
+                if filename:
+                    wf.set_input(node_id, "image", filename)
+                    continue
+                # Unused slot: fall back to a bundled example that exists.
+                fallback = _fallback_ref_for(role)
+                if fallback:
+                    wf.set_input(node_id, "image", fallback)
+                # Drop the ref link so H3 ignores this slot entirely.
+                slot = "ref_images.ref_image_%s" % node_id[-1]
+                wf.json["136"]["inputs"].pop(slot, None)
 
             # Patch the prompt
             wf.set_input("136", "prompt", job["prompt"] or _DEFAULT_PROMPT)
+
+            # Apply the quality selection to the ResolutionSelector.
+            # 0.4 MP -> 864x480 (16:9), 0.13 MP -> 480x272.
+            megapixels = _QUALITY_MEGAPIXELS.get(job.get("quality", ""), 0.4)
+            wf.set_input("115", "megapixels", megapixels)
 
             job["status"] = "rendering"
             job["log"].append("submitted, waiting for completion")
@@ -195,7 +351,25 @@ def create_app() -> FastAPI:
             for output in outputs:
                 dest = OUTPUT_DIR / output.name
                 output.to_file(str(dest))
-                job["outputs"].append({"name": output.name, "url": f"/outputs/{output.name}"})
+                label = "Output video" if output.name.endswith(".mp4") else output.name
+                job["outputs"].append({"name": output.name, "url": f"/outputs/{output.name}", "label": label})
+            # Append the source still + first reference for the triptych
+            src_still_name = src_still.name
+            if (OUTPUT_DIR / src_still_name).exists():
+                job["outputs"].append({
+                    "name": src_still_name,
+                    "url": f"/outputs/{src_still_name}",
+                    "label": "Source video (t=1s)",
+                })
+            if job["refs"]:
+                ref_path = Path(job["refs"][0])
+                ref_label = f"Reference ({job.get('refs_role', ['person'] * len(job['refs']))[0]})"
+                if (ref_path).exists():
+                    job["outputs"].append({
+                        "name": ref_path.name,
+                        "url": f"/outputs/{ref_path.name}",
+                        "label": ref_label,
+                    })
             job["status"] = "complete"
         except Exception as e:
             job["status"] = "failed"

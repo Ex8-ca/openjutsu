@@ -20,13 +20,28 @@
     </section>
 
     <section class="card">
-      <h2>2. Reference images <small>· up to 9</small></h2>
-      <p class="hint">Characters, locations, or styles to drop into the video. Add nothing and the source video's first frame is used.</p>
-      <div id="ref-list" class="thumb-grid"></div>
-      <label class="add-btn">
-        + Add reference image
-        <input id="ref-add" type="file" accept="image/*" multiple hidden>
-      </label>
+      <h2>2. Reference images <small>· up to 3 named roles</small></h2>
+      <p class="hint">Choose a role for each ref image: identity, scene, or outfit.</p>
+      <div class="ref-slots">
+        <fieldset class="ref-slot" data-role="person">
+          <legend>Person <small>· identity anchor</small></legend>
+          <input type="file" accept="image/*" hidden>
+          <button type="button" class="add-btn">+ Add person image</button>
+          <div class="thumb"></div>
+        </fieldset>
+        <fieldset class="ref-slot" data-role="scene">
+          <legend>Scene <small>· location/lighting anchor</small></legend>
+          <input type="file" accept="image/*" hidden>
+          <button type="button" class="add-btn">+ Add scene image</button>
+          <div class="thumb"></div>
+        </fieldset>
+        <fieldset class="ref-slot" data-role="outfit">
+          <legend>Outfit <small>· clothing anchor</small></legend>
+          <input type="file" accept="image/*" hidden>
+          <button type="button" class="add-btn">+ Add outfit image</button>
+          <div class="thumb"></div>
+        </fieldset>
+      </div>
     </section>
 
     <section class="card">
@@ -38,6 +53,7 @@
       </label>
       <textarea id="prompt" rows="4" disabled
         placeholder="A graceful dancer performing expressive contemporary dance in a sunlit wildflower meadow at golden hour…"></textarea>
+      <button id="enhance-prompt" type="button" class="enhance-btn">✨ Enhance</button>
     </section>
 
     <section class="card">

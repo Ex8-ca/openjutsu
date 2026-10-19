@@ -135,7 +135,11 @@
       ],
       "fps": 24,
       "bit_depth": "auto",
-      "color_space": "sRGB"
+      "color_space": "sRGB",
+      "audio": [
+        "121",
+        0
+      ]
     }
   },
   "131": {
@@ -192,6 +196,10 @@
       ],
       "ref_images.ref_image_1": [
         "901",
+        0
+      ],
+      "ref_images.ref_image_2": [
+        "902",
         0
       ]
     }
@@ -386,13 +394,19 @@
   "772": {
     "class_type": "PrimitiveString",
     "inputs": {
-      "value": "An older Caucasian man with short white/gray hair and medium build, wearing a plain white short-sleeved t-shirt and gray athletic shorts. He is in a dark-walled rage room with a yellow angry-smiley logo and SMASH IT signs. He swings a metal pipe at a large pane of glass. Cinematic lighting, dark moody atmosphere with bright spotlight, photorealistic motion preserved from the source video."
+      "value": "A graceful dancer performing expressive contemporary dance in a sunlit wildflower meadow at golden hour. The character wears a flowing terracotta slip dress, hair swept back, arms extended. The scene includes overgrown grass, white wildflowers, a dense tree line, and warm lens flare."
     }
   },
   "901": {
     "class_type": "LoadImage",
     "inputs": {
       "image": "source_frame_832.png"
+    }
+  },
+  "902": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "dancer_ref.png"
     }
   }
 }

@@ -25,3 +25,4 @@ user/comfyui.db-journal
 examples/output/*.mp4
 examples/output/frames/
 renders/web/outputs/
+web/outputs/
