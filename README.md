@@ -190,6 +190,11 @@ openjutsu/
 │       ├── index.html        # source video, refs, prompt, quality
 │       ├── style.css         # dark theme, lime accent
 │       └── app.js            # upload + poll + render
+├── deploy/
+│   └── systemd/
+│       ├── comfyui-daemon.service  # ComfyUI on :8188 (Restart=always)
+│       ├── comfyui-proxy.service    # comfy-api-proxy on :8189
+│       └── openjutsu-web.service    # FastAPI UI on :8765
 ```
 
 ---
@@ -201,6 +206,8 @@ form (Genjutsu-style: drop a source video, drop reference images, write
 a prompt, hit Generate). The demo video and audio preservation flow
 are both reachable from the UI.
 
+### Run it (manual)
+
 ```bash
 # Terminal 1: ComfyUI daemon
 PYTHONPATH="" /home/marc/nvme-data/.comfyui/.venv/bin/python \
@@ -210,8 +217,9 @@ PYTHONPATH="" /home/marc/nvme-data/.comfyui/.venv/bin/python \
 
 # Terminal 2: Comfy API proxy
 PYTHONPATH="" /home/marc/nvme-data/.comfyui/.venv/bin/comfy-api-proxy run \
-    --comfyui http://127.0.0.1:8188 --host 127.0.0.1 --port 8189 \
-    --comfyui-base-dir /home/marc/nvme-data/.comfyui --allow-insecure-bind
+    --comfyui http://127.0.0.1:8188 --host 0.0.0.0 --port 8189 \
+    --comfyui-base-dir /home/marc/nvme-data/.comfyui \
+    --allow-insecure-bind
 
 # Terminal 3: Openjutsu web UI
 PYTHONPATH="" /home/marc/nvme-data/.comfyui/.venv/bin/python \
@@ -220,6 +228,39 @@ PYTHONPATH="" /home/marc/nvme-data/.comfyui/.venv/bin/python \
 # Browser
 open http://localhost:8765
 ```
+
+### Run it as systemd services (auto-restart on failure)
+
+The `deploy/systemd/` directory has three user-level unit files that
+manage the daemon, proxy, and UI. They bind to `0.0.0.0` so any LAN
+device (including a Tailscale MagicDNS hostname) can reach them.
+
+```bash
+# Install: copy the unit files and enable
+mkdir -p ~/.config/systemd/user
+cp deploy/systemd/*.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable comfyui-daemon.service comfyui-proxy.service openjutsu-web.service
+
+# Start
+systemctl --user start comfyui-daemon.service   # wait ~15s for H3 + Qwen to stage
+systemctl --user start comfyui-proxy.service
+systemctl --user start openjutsu-web.service
+
+# Check
+systemctl --user status comfyui-daemon.service comfyui-proxy.service openjutsu-web.service
+curl -s http://192.168.1.3:8765/healthz   # → {"status":"ok",...}
+```
+
+All three services have `Restart=always` and `RestartSec=2-3`, so any
+crash (OOM, manual `pkill`, host reboot) is recovered automatically.
+
+> **Tailscale / browser bridge note**: the UI's `fetch()` calls the API
+> on whatever origin the page was loaded from, so the page must be loaded
+> from a host that can reach `:8765` on the machine the FastAPI server
+> listens on. CORS is configured `allow_origins=["*"]` so cross-origin
+>  requests are accepted regardless. From a Tailscale node,
+> `http://<machine-name>.<tailnet>:8765` works.
 
 Uploads land in ComfyUI's input directory; the workflow is submitted
 through the Comfy SDK against `comfy-api-proxy`; outputs are streamed

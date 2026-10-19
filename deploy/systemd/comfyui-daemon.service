@@ -1,0 +1,16 @@
+[Unit]
+Description=ComfyUI daemon for Openjutsu (port 8188)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/marc/nvme-data/.comfyui
+ExecStart=/home/marc/nvme-data/.comfyui/.venv/bin/python main.py --listen 0.0.0.0 --port 8188 --fp8_e4m3fn-unet --fp16-vae --enable-cors-header '*' --lowvram --reserve-vram 0.5 --vram-headroom 1 --log-stdout
+Restart=always
+RestartSec=3
+StandardOutput=append:/home/marc/nvme-data/cinematic/openjutsu/comfyui.log
+StandardError=append:/home/marc/nvme-data/cinematic/openjutsu/comfyui.log
+Environment=PYTHONPATH=
+
+[Install]
+WantedBy=default.target

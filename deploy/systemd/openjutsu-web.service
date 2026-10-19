@@ -1,0 +1,17 @@
+[Unit]
+Description=Openjutsu FastAPI web UI
+After=network.target
+Requires=comfyui-daemon.service comfyui-proxy.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/marc/nvme-data/cinematic/openjutsu/web
+ExecStart=/home/marc/nvme-data/.comfyui/.venv/bin/python /home/marc/nvme-data/cinematic/openjutsu/web/server.py --host 0.0.0.0 --port 8765
+Restart=always
+RestartSec=2
+StandardOutput=append:/home/marc/nvme-data/cinematic/openjutsu/web/server.log
+StandardError=append:/home/marc/nvme-data/cinematic/openjutsu/web/server.log
+Environment=PYTHONPATH=
+
+[Install]
+WantedBy=default.target

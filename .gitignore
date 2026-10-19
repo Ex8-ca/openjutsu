@@ -24,4 +24,4 @@ user/comfyui.db-journal
 # Render outputs (these are large — keep them local)
 examples/output/*.mp4
 examples/output/frames/
-renders/
+renders/web/outputs/
