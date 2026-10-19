@@ -20,6 +20,28 @@
     </section>
 
     <section class="card">
+      <h2>2. Mode</h2>
+      <p class="hint">Motion Transfer rebuilds the whole shot. Object Swap changes one element and keeps the rest of the shot intact.</p>
+      <div class="mode-switch" role="radiogroup" aria-label="Mode">
+        <label class="mode-opt">
+          <input type="radio" name="mode" value="transfer" checked>
+          <span><strong>Motion Transfer</strong><small>rebuild the scene from your references</small></span>
+        </label>
+        <label class="mode-opt">
+          <input type="radio" name="mode" value="swap">
+          <span><strong>Object Swap</strong><small>replace one element, keep the rest</small></span>
+        </label>
+      </div>
+    </section>
+
+    <section class="card" id="swap-mask-card" hidden>
+      <h2>3. Swap mask <small>· white = replace</small></h2>
+      <p class="hint">A mask image over the thing to replace. White pixels are regenerated; black pixels are kept from the source. One image is reused across every frame.</p>
+      <input id="swap_mask" type="file" accept="image/*" required>
+      <p class="hint" id="swap-mask-name"></p>
+    </section>
+
+    <section class="card">
       <h2>2. Reference images <small>· up to 3 named roles</small></h2>
       <p class="hint">Choose a role for each ref image: identity, scene, or outfit.</p>
       <div class="ref-slots">

@@ -68,7 +68,21 @@ if [ -n "$AUDIO_NODE" ] && [ -f "$REPO_ROOT/patches/vrgdg-minimax-h3-audio-drive
 fi
 echo
 
-# --- 3. model checklist ---
+# --- 3. Object Swap extras ---
+# The Object Swap workflow uses the Union 2.0 controlnet: it is the branch
+# trained with the inpaint hole convention (post_norm) the mask path needs.
+UNION2="minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors"
+PATCH_DIR="$COMFYUI_ROOT/model_patches"
+if [ ! -f "$PATCH_DIR/$UNION2" ]; then
+  echo "-- downloading the Union 2.0 controlnet (needed for Object Swap)"
+  mkdir -p "$PATCH_DIR"
+  wget -c -q --show-progress -O "$PATCH_DIR/$UNION2" \
+    "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/model_patches/$UNION2" \
+    || echo "   ! download failed — Object Swap will be unavailable, Motion Transfer still works"
+fi
+echo
+
+# --- 4. model checklist ---
 cat <<'EOF'
 -- models still needed (download into ComfyUI's models/ dir)
 
@@ -76,6 +90,7 @@ diffusion_models/
   minimax_h3_ref2va_pruned_int8_convrot.safetensors      21 GB   (required)
 model_patches/
   minimax_h3_fun_controlnet_union_pruned_int8_convrot.safetensors  2.3 GB (required)
+  minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors  4.5 GB (Object Swap)
 text_encoders/
   qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors             14.6 GB  (required)
 vae/

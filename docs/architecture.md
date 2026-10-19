@@ -205,6 +205,79 @@ All of these feed into `MiniMaxH3FunControlNetApply.control_video`
 unchanged. The H3 Fun ControlNet-Union was trained on all five and any
 of them work as a drop-in replacement.
 
+## Object Swap: the inpaint path, and what actually makes it swap
+
+Genjutsu has two modes. Motion Transfer rebuilds the whole shot. Object Swap
+changes one element and keeps the rest of the original shot. The H3 Fun
+ControlNet-Union we already ship has the machinery for the second one: the
+`MiniMaxH3FunControlNetApply` node takes a `mask` and a `source_video`
+alongside `control_video`, and the ComfyUI docs describe it as *"regions
+marked `1` are regenerated under control of the optional `source_video`
+input, while the rest of the frame stays fixed."*
+
+### The channel layout
+
+The Union branch is 49 channels wide, not 24:
+
+| Channels | Content |
+|---|---|
+| 0–23 | control video latent (Canny / Depth / HED / MLSD / Pose), or zeros |
+| 24 | visibility map (`1 - mask`, on the latent grid) |
+| 25–48 | the source video, VAE-encoded, with the masked pixels zeroed |
+
+The `control_proj_in` weight is `[5376, 196]` — 49 channels x the 1x2x2 patch.
+Both the v1 and the v2 Union checkpoints are 49-wide, so the inpaint path
+works with either; the difference is the hole convention.
+
+### Use the Union 2.0 checkpoint for Object Swap
+
+| Checkpoint | Metadata | Hole convention |
+|---|---|---|
+| `..._union_pruned_int8_convrot` (v1) | `minimax_h3_fun_controlnet: adaln_basis` | `pre_norm` — holes land near -2 |
+| `..._union_2.0_pruned_int8_convrot` (v2) | `+ inpaint_masked_pixel_mode: post_norm`, 10 control blocks | `post_norm` — holes land at 0, mid-gray in pixel terms |
+
+The upstream reference (`aigc-apps/VideoX-Fun`,
+`examples/minimax_h3_fun/predict_v2v_control_inpaint.py`) points at the 2.0
+checkpoint and the `post_norm` config, and `alibaba-pai` calls 2.0 the
+recommended checkpoint for new work. `Object Swap` therefore uses the 2.0 file.
+ComfyUI reads the block count and the `control_blocks_places` metadata and
+builds the right injection layers for both.
+
+### Verified: the masked region really does regenerate
+
+Three renders, each isolating one variable:
+
+1. **Whole frame masked**, no reference, prompt *"a robot astronaut in a
+   spaceship"*. Result: a completely different image. The masked region is
+   regenerated, not copied.
+2. **Top ~39% masked** (sky and tree line), no reference, prompt asking for
+   night. Result: the masked band changed, the unmasked meadow stayed.
+3. **Dancer's body masked**, reference = a different person's face. Result: the
+   region regenerated, but it reproduced the original dancer.
+
+Case 3 is the honest limit of the current build. The visibility map pins the
+unmasked 85% of the frame, and the model reconstructs the masked region to be
+consistent with what surrounds it — so with a static mask and a prompt that
+still describes a dancer in a meadow, it renders a dancer. **The swap needs
+the prompt to describe the new element, and the reference to be a good match
+for the masked region** (a full-body reference for a body mask, not a face
+crop). That is the next thing to tune, not a broken pipeline.
+
+### Diagnostics
+
+`MiniMaxH3FunControlNetApply` writes nothing about the control latent, so
+"the mask is not doing anything" and "the mask is applied but the model
+overrides it" look identical from the outside. Dumping the hint tensor
+settles it in one line:
+
+```
+DBG control_latent shape=(1, 49, 12, 18, 30) | visibility ch24 min=0.000 max=1.000 mean=0.845
+```
+
+49 channels, visibility spanning 0..1 with a mean that matches the masked
+area fraction — the mask is reaching the model. If that line shows a
+different shape, the mask is not connected.
+
 ## Uploading reference images: use the SDK asset API, not bare filenames
 
 ComfyUI resolves a `LoadImage` filename against the **daemon's** input

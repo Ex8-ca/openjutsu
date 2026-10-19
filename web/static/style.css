@@ -199,3 +199,32 @@ video {
   border-radius: 8px;
   background: #000;
 }
+/* -- mode switch ------------------------------------------------------- */
+.mode-switch {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.mode-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: #0f1115;
+  cursor: pointer;
+}
+.mode-opt:hover { border-color: var(--accent-dim); }
+.mode-opt:has(input:checked) {
+  border-color: var(--accent);
+  background: rgba(182, 241, 106, 0.06);
+}
+.mode-opt input { margin-top: 3px; accent-color: var(--accent); }
+.mode-opt strong { display: block; font-size: 14px; }
+.mode-opt small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+}

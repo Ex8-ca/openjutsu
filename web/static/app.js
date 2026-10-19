@@ -43,6 +43,22 @@ $$(".ref-slot").forEach((slotEl) => {
   });
 });
 
+// -- mode switch ----------------------------------------------------------
+const swapCard = $("#swap-mask-card");
+const maskInput = $("#swap_mask");
+$$('input[name="mode"]').forEach((radio) => {
+  radio.addEventListener("change", () => {
+    const isSwap = $('input[name="mode"]:checked').value === "swap";
+    swapCard.hidden = !isSwap;
+    if (isSwap && !maskInput.files.length) maskInput.setAttribute("required", "required");
+    else maskInput.removeAttribute("required");
+  });
+});
+maskInput.addEventListener("change", () => {
+  const f = maskInput.files[0];
+  $("#swap-mask-name").textContent = f ? f.name : "";
+});
+
 // -- prompt toggle --------------------------------------------------------
 const promptEl = $("#prompt");
 $("#prompt-on").addEventListener("change", (e) => {
@@ -87,6 +103,13 @@ goBtn.addEventListener("click", async () => {
 
   const fd = new FormData();
   fd.append("source_video", video);
+  const mode = $('input[name="mode"]:checked').value;
+  fd.append("mode", mode);
+  if (mode === "swap") {
+    const mask = maskInput.files[0];
+    if (!mask) return alert("Object Swap needs a mask image.");
+    fd.append("mask_image", mask);
+  }
   for (const role of ["person", "scene", "outfit"]) {
     if (refs[role]) fd.append("ref_images", refs[role]);
     if (refs[role]) fd.append("refs_role", role);

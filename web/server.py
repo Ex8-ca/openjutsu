@@ -67,6 +67,12 @@ WEB_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = WEB_ROOT / "static"
 WORKFLOW_PATH = REPO_ROOT / "workflows" / "openjutsu_api.json"
 AUDIO_WORKFLOW_PATH = REPO_ROOT / "workflows" / "openjutsu_api_audio.json"
+SWAP_WORKFLOW_PATH = REPO_ROOT / "workflows" / "openjutsu_api_swap.json"
+SWAP_AUDIO_WORKFLOW_PATH = REPO_ROOT / "workflows" / "openjutsu_api_swap_audio.json"
+
+# "transfer" (Motion Transfer) or "swap" (Object Swap).
+MODE_TRANSFER = "transfer"
+MODE_SWAP = "swap"
 
 # The source-audio-preserving variant needs the VRGDG custom node. When that
 # pack is not installed the node type does not exist and ComfyUI rejects the
@@ -90,13 +96,24 @@ def _daemon_object_info(node_type: str) -> bool:
         return False
 
 
-def _resolve_workflow_path() -> Path:
-    """Pick the workflow file to submit."""
+def _resolve_workflow_path(mode: str = MODE_TRANSFER) -> Path:
+    """Pick the workflow file to submit.
+
+    mode "transfer" -> Motion Transfer (Canny control)
+    mode "swap"     -> Object Swap (mask + source-video inpaint)
+    """
+    if mode == MODE_SWAP:
+        swap_core = SWAP_WORKFLOW_PATH
+        swap_audio = SWAP_AUDIO_WORKFLOW_PATH
+    else:
+        swap_core = WORKFLOW_PATH
+        swap_audio = AUDIO_WORKFLOW_PATH
+
     if _WORKFLOW_CHOICE in ("core", "audio"):
-        return AUDIO_WORKFLOW_PATH if _WORKFLOW_CHOICE == "audio" else WORKFLOW_PATH
-    if AUDIO_WORKFLOW_PATH.exists() and _daemon_object_info("VRGDG_MiniMaxH3AudioDrive"):
-        return AUDIO_WORKFLOW_PATH
-    return WORKFLOW_PATH
+        return swap_audio if _WORKFLOW_CHOICE == "audio" else swap_core
+    if swap_audio.exists() and _daemon_object_info("VRGDG_MiniMaxH3AudioDrive"):
+        return swap_audio
+    return swap_core
 
 COMFYUI_INPUT_DIR = Path(
     os.environ.get("COMFYUI_INPUT_DIR", str(COMFYUI_ROOT / "input"))
@@ -197,7 +214,12 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz")
     async def healthz() -> dict:
-        return {"status": "ok", "time": time.time()}
+        return {
+            "status": "ok",
+            "time": time.time(),
+            "swap_ready": SWAP_WORKFLOW_PATH.exists(),
+            "union2_present": _daemon_object_info("MiniMaxH3FunControlNetApply"),
+        }
 
     @app.post("/api/enhance-prompt")
     async def enhance_prompt_endpoint(prompt: str = Form(...)) -> dict:
@@ -207,19 +229,28 @@ def create_app() -> FastAPI:
     @app.post("/api/generate")
     async def generate(
         source_video: UploadFile = File(...),
-        ref_images: list[UploadFile] = File(default=[]),
+        ref_images: list[UploadFile] = Form(default=[]),
         refs_role: list[str] = Form(default=[]),
         prompt: str = Form(default=""),
         quality: str = Form(default="864x480"),
+        mode: str = Form(default=MODE_TRANSFER),
+        mask_image: UploadFile | None = File(default=None),
     ) -> dict:
         if not source_video.filename:
             raise HTTPException(400, "source_video is required")
+        if mode not in (MODE_TRANSFER, MODE_SWAP):
+            raise HTTPException(400, f"unknown mode: {mode}")
+        if mode == MODE_SWAP and (mask_image is None or not mask_image.filename):
+            raise HTTPException(400, "Object Swap needs a mask image")
         # Persist uploads
         video_path = _stage_upload("source", source_video, STAGING_DIR)
         ref_paths: list[Path] = []
         for ref in ref_images[:9]:  # H3 caps ref_images at 9
             if ref.filename:
                 ref_paths.append(_stage_upload("ref", ref, STAGING_DIR))
+        mask_path: Path | None = None
+        if mode == MODE_SWAP and mask_image is not None and mask_image.filename:
+            mask_path = _stage_upload("mask", mask_image, STAGING_DIR)
 
         # refs_role comes through as a parallel list (e.g., ["person","scene","outfit"])
         # to label which ref slot each file belongs to. Pad to length of ref_paths.
@@ -234,6 +265,8 @@ def create_app() -> FastAPI:
             "source": str(video_path),
             "refs": [str(p) for p in ref_paths],
             "refs_role": role_labels,
+            "mode": mode,
+            "mask": str(mask_path) if mask_path else None,
             "prompt": prompt.strip(),
             "quality": quality,
             "log": [],
@@ -266,8 +299,9 @@ def create_app() -> FastAPI:
         try:
             job["status"] = "submitting"
             client = Comfy()
-            workflow_path = _resolve_workflow_path()
-            job["log"].append(f"workflow: {workflow_path.name}")
+            mode = job.get("mode", MODE_TRANSFER)
+            workflow_path = _resolve_workflow_path(mode)
+            job["log"].append(f"workflow: {workflow_path.name} (mode: {mode})")
             wf = client.workflows.from_file(str(workflow_path))
 
             # Source video via LoadVideo (node 174) — accepts asset handle
@@ -327,6 +361,12 @@ def create_app() -> FastAPI:
                 # resolves against. Passing a bare filename here only works
                 # when this app happens to share a filesystem with the daemon.
                 wf.set_input(node_id, "image", client.assets.from_file(str(source_path)))
+
+            # Object Swap: the mask is the region to regenerate. Upload it
+            # through the SDK asset API like every other file, so the daemon
+            # resolves it in its own input directory.
+            if mode == MODE_SWAP and job.get("mask"):
+                wf.set_input("821", "image", client.assets.from_file(job["mask"]))
 
             # Patch the prompt
             wf.set_input("136", "prompt", job["prompt"] or _DEFAULT_PROMPT)
