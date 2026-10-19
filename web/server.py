@@ -134,6 +134,10 @@ STAGING_DIR.mkdir(parents=True, exist_ok=True)
 # In-memory job registry. Single-process dev server; replace with Redis/DB for production.
 JOBS: dict[str, dict] = {}
 
+# A job in an active state for longer than this is considered stale — the
+# daemon may have been OOM-killed — and stops blocking new submissions.
+_ACTIVE_JOB_TIMEOUT = 20 * 60
+
 
 def _stage_upload(prefix: str, upload: UploadFile, dest_dir: Path) -> Path:
     """Stage an UploadFile locally with a unique prefix. Returns the path.
@@ -312,10 +316,38 @@ def create_app() -> FastAPI:
         role_labels = role_labels[:len(ref_paths)]
 
         job_id = uuid.uuid4().hex
+
+        # One render at a time.
+        #
+        # H3 needs ~13.5 GB of VRAM and the daemon is already close to the
+        # 16 GB limit, so two concurrent renders push the machine into the
+        # OOM killer and the daemon dies mid-job. The client's retry logic
+        # can also submit the same render twice when the tunnel drops a
+        # response, which would queue two of them. Refuse the second one
+        # rather than let the box fall over.
+        #
+        # A job that has been "rendering" for longer than the timeout is
+        # treated as stale (the daemon may have been OOM-killed) and does
+        # not block new work.
+        now = time.time()
+        active = [
+            j for j in JOBS.values()
+            if j.get("status") in ("queued", "submitting", "rendering",
+                                   "downloading")
+            and now - j.get("created", now) < _ACTIVE_JOB_TIMEOUT
+        ]
+        if active:
+            raise HTTPException(
+                429,
+                "a render is already running on this machine "
+                f"(job {active[0]['id'][:8]}); wait for it to finish, "
+                "or run Openjutsu locally",
+            )
+
         JOBS[job_id] = {
             "id": job_id,
             "status": "queued",
-            "created": time.time(),
+            "created": now,
             "source": str(video_path),
             "refs": [str(p) for p in ref_paths],
             "refs_role": role_labels,

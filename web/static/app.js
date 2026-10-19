@@ -122,12 +122,27 @@ goBtn.addEventListener("click", async () => {
   $("#outputs").innerHTML = "";
   $("#log").hidden = true;
 
-  let resp;
-  try {
-    resp = await fetch("/api/generate", { method: "POST", body: fd });
-  } catch (e) {
+  // Submit. The public tunnel can drop a response to a large multipart
+  // upload, so retry a few times before giving up — the request usually
+  // reached the app and the response was lost on the way back.
+  let resp = null;
+  let lastErr = "";
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      resp = await fetch("/api/generate", { method: "POST", body: fd });
+      break;
+    } catch (e) {
+      lastErr = String(e);
+      if (attempt < 4) {
+        $("#status-line").textContent = `uploading… retrying (${attempt}/3)`;
+        await new Promise((r) => setTimeout(r, 2500 * attempt));
+      }
+    }
+  }
+  if (!resp) {
     $("#status-line").classList.add("error");
-    $("#status-line").textContent = `network error: ${e}`;
+    $("#status-line").textContent =
+      `network error after 4 attempts: ${lastErr}. The connection to the server was dropped — try again, or run Openjutsu locally.`;
     goBtn.disabled = false; goBtn.textContent = "Generate ✨";
     return;
   }
@@ -135,7 +150,12 @@ goBtn.addEventListener("click", async () => {
   if (!resp.ok) {
     const t = await resp.text();
     $("#status-line").classList.add("error");
-    $("#status-line").textContent = `submit failed (${resp.status}): ${t}`;
+    if (resp.status === 429) {
+      $("#status-line").textContent =
+        `busy: ${t} — this box renders one clip at a time.`;
+    } else {
+      $("#status-line").textContent = `submit failed (${resp.status}): ${t}`;
+    }
     goBtn.disabled = false; goBtn.textContent = "Generate ✨";
     return;
   }
