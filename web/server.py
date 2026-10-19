@@ -106,12 +106,23 @@ OUTPUT_DIR = Path(
 ).resolve()
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# Where uploads are staged before being pushed to ComfyUI over the SDK
+# asset API. Local to this machine by design.
+STAGING_DIR = Path(
+    os.environ.get("OPENJUTSU_STAGING_DIR", str(REPO_ROOT / "web" / "staging"))
+).resolve()
+STAGING_DIR.mkdir(parents=True, exist_ok=True)
+
 # In-memory job registry. Single-process dev server; replace with Redis/DB for production.
 JOBS: dict[str, dict] = {}
 
 
-def _save_upload(prefix: str, upload: UploadFile, dest_dir: Path) -> Path:
-    """Persist an UploadFile to dest_dir with a unique prefix. Returns the dest path."""
+def _stage_upload(prefix: str, upload: UploadFile, dest_dir: Path) -> Path:
+    """Stage an UploadFile locally with a unique prefix. Returns the path.
+
+    The staged copy is a staging area only — it is uploaded to ComfyUI
+    through the SDK asset API, not referenced by filename.
+    """
     if not upload.filename:
         raise HTTPException(400, "Empty filename")
     # Preserve a sanitized suffix
@@ -138,8 +149,9 @@ _DEFAULT_PROMPT = (
 )
 
 
-# Bundled example assets, copied into ComfyUI's input/ dir on demand so the
-# workflow's default slots always resolve. Keys are role names.
+# Bundled example assets, used to fill a reference slot the user left
+# empty. They are uploaded to ComfyUI through the SDK asset API like any
+# other file, so no shared filesystem is assumed.
 _EXAMPLE_REFS = {
     "person": "dancer_ref.png",
     "scene": "source_frame_832.png",
@@ -147,24 +159,13 @@ _EXAMPLE_REFS = {
 }
 
 
-def _fallback_ref_for(role: str) -> str | None:
-    """Return the name of a bundled example image for `role`, copying it into
-    ComfyUI's input/ directory if it is not already there. None if unavailable.
-    """
+def _example_ref_for(role: str) -> Path | None:
+    """Path to a bundled example image for `role`, or None if unavailable."""
     name = _EXAMPLE_REFS.get(role)
     if not name:
         return None
     src = REPO_ROOT / "examples" / name
-    if not src.exists():
-        return None
-    dest = COMFYUI_INPUT_DIR / name
-    if not dest.exists():
-        try:
-            COMFYUI_INPUT_DIR.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
-        except OSError:
-            return None
-    return name
+    return src if src.exists() else None
 
 
 def create_app() -> FastAPI:
@@ -214,11 +215,11 @@ def create_app() -> FastAPI:
         if not source_video.filename:
             raise HTTPException(400, "source_video is required")
         # Persist uploads
-        video_path = _save_upload("source", source_video, COMFYUI_INPUT_DIR)
+        video_path = _stage_upload("source", source_video, STAGING_DIR)
         ref_paths: list[Path] = []
         for ref in ref_images[:9]:  # H3 caps ref_images at 9
             if ref.filename:
-                ref_paths.append(_save_upload("ref", ref, COMFYUI_INPUT_DIR))
+                ref_paths.append(_stage_upload("ref", ref, STAGING_DIR))
 
         # refs_role comes through as a parallel list (e.g., ["person","scene","outfit"])
         # to label which ref slot each file belongs to. Pad to length of ref_paths.
@@ -286,7 +287,6 @@ def create_app() -> FastAPI:
                 )
             except Exception:
                 # Fallback: copy the source directly
-                import shutil
                 shutil.copy(JOBS[job_id_safe]["source"], src_still)
 
             # Reference images — wire each into node 900/901/902 by role
@@ -300,27 +300,33 @@ def create_app() -> FastAPI:
             # reference the user never asked for.
             role_to_node = {"person": "900", "scene": "901", "outfit": "902"}
             node_to_role = {v: k for k, v in role_to_node.items()}
-            roles = job.get("refs_role") or []
+            roles = list(job.get("refs_role") or [])
             roles += [""] * (len(job["refs"]) - len(roles))
 
-            # Map role -> uploaded filename (first upload wins for a role).
-            chosen: dict[str, str] = {}
+            # Map role -> staged upload path (first upload wins for a role).
+            chosen: dict[str, Path] = {}
             for ref_path, role in zip(job["refs"], roles):
                 role = role or "person"
-                chosen.setdefault(role, Path(ref_path).name)
+                chosen.setdefault(role, Path(ref_path))
 
             for node_id, role in node_to_role.items():
-                filename = chosen.get(role)
-                if filename:
-                    wf.set_input(node_id, "image", filename)
-                    continue
-                # Unused slot: fall back to a bundled example that exists.
-                fallback = _fallback_ref_for(role)
-                if fallback:
-                    wf.set_input(node_id, "image", fallback)
-                # Drop the ref link so H3 ignores this slot entirely.
-                slot = "ref_images.ref_image_%s" % node_id[-1]
-                wf.json["136"]["inputs"].pop(slot, None)
+                source_path = chosen.get(role)
+                if source_path is None:
+                    # Unused slot. Drop the ref link so H3 does not see a
+                    # reference the user never asked for, and leave the
+                    # LoadImage node pointing at a bundled example that the
+                    # SDK uploads below.
+                    slot = "ref_images.ref_image_%s" % node_id[-1]
+                    wf.json["136"]["inputs"].pop(slot, None)
+                    source_path = _example_ref_for(role)
+                    if source_path is None:
+                        continue
+                # Upload through the SDK asset API. The proxy pushes the bytes
+                # into the DAEMON's input directory and substitutes the right
+                # filename at submit time — which is what ComfyUI's LoadImage
+                # resolves against. Passing a bare filename here only works
+                # when this app happens to share a filesystem with the daemon.
+                wf.set_input(node_id, "image", client.assets.from_file(str(source_path)))
 
             # Patch the prompt
             wf.set_input("136", "prompt", job["prompt"] or _DEFAULT_PROMPT)
@@ -363,13 +369,21 @@ def create_app() -> FastAPI:
                 })
             if job["refs"]:
                 ref_path = Path(job["refs"][0])
-                ref_label = f"Reference ({job.get('refs_role', ['person'] * len(job['refs']))[0]})"
-                if (ref_path).exists():
-                    job["outputs"].append({
-                        "name": ref_path.name,
-                        "url": f"/outputs/{ref_path.name}",
-                        "label": ref_label,
-                    })
+                ref_roles = list(job.get("refs_role") or [])
+                ref_label = f"Reference ({ref_roles[0] if ref_roles else 'person'})"
+                if ref_path.exists():
+                    # Copy into the output dir so the browser can show it.
+                    try:
+                        shown = OUTPUT_DIR / ref_path.name
+                        if not shown.exists():
+                            shutil.copy2(ref_path, shown)
+                        job["outputs"].append({
+                            "name": shown.name,
+                            "url": f"/outputs/{shown.name}",
+                            "label": ref_label,
+                        })
+                    except OSError:
+                        pass
             job["status"] = "complete"
         except Exception as e:
             job["status"] = "failed"

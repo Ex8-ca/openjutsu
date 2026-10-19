@@ -26,3 +26,7 @@ examples/output/*.mp4
 examples/output/frames/
 renders/web/outputs/
 web/outputs/
+
+# Local upload staging area (files are uploaded to ComfyUI over the SDK
+# asset API; the staged copies are transient)
+web/staging/
