@@ -20,7 +20,10 @@ import numpy as np
 
 WIDTH, HEIGHT, FPS = 672, 384, 24
 THRESHOLD = 90       # summed abs difference against the background
-DILATE = 6           # pixels, so the whole silhouette is inside the hole
+DILATE = 70          # pixels of dilation. The replacement subject is often
+                    # LARGER than the one it replaces (armour, a hat, a
+                    # prop), so the hole has to be generous or the new
+                    # subject is clipped and the composite shows a hybrid.
 KEEP_BLOBS = 1
 
 
