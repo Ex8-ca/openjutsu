@@ -388,5 +388,33 @@
         0
       ]
     }
+  },
+  "822": {
+    "class_type": "LoadVideo",
+    "inputs": {
+      "file": "swap_mask_track.mp4",
+      "upload": "image"
+    }
+  },
+  "823": {
+    "class_type": "Video Slice",
+    "inputs": {
+      "video": [
+        "822",
+        0
+      ],
+      "start_time": 0,
+      "duration": 0,
+      "strict_duration": false
+    }
+  },
+  "824": {
+    "class_type": "GetVideoComponents",
+    "inputs": {
+      "video": [
+        "823",
+        0
+      ]
+    }
   }
 }

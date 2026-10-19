@@ -235,13 +235,16 @@ def create_app() -> FastAPI:
         quality: str = Form(default="864x480"),
         mode: str = Form(default=MODE_TRANSFER),
         mask_image: UploadFile | None = File(default=None),
+        mask_video: UploadFile | None = File(default=None),
     ) -> dict:
         if not source_video.filename:
             raise HTTPException(400, "source_video is required")
         if mode not in (MODE_TRANSFER, MODE_SWAP):
             raise HTTPException(400, f"unknown mode: {mode}")
-        if mode == MODE_SWAP and (mask_image is None or not mask_image.filename):
-            raise HTTPException(400, "Object Swap needs a mask image")
+        if mode == MODE_SWAP and not any(
+            u is not None and u.filename for u in (mask_image, mask_video)
+        ):
+            raise HTTPException(400, "Object Swap needs a mask image or a mask video")
         # Persist uploads
         video_path = _stage_upload("source", source_video, STAGING_DIR)
         ref_paths: list[Path] = []
@@ -249,8 +252,13 @@ def create_app() -> FastAPI:
             if ref.filename:
                 ref_paths.append(_stage_upload("ref", ref, STAGING_DIR))
         mask_path: Path | None = None
-        if mode == MODE_SWAP and mask_image is not None and mask_image.filename:
-            mask_path = _stage_upload("mask", mask_image, STAGING_DIR)
+        if mode == MODE_SWAP:
+            # A still mask covers a static subject; a mask video tracks a
+            # moving one frame by frame.
+            if mask_video is not None and mask_video.filename:
+                mask_path = _stage_upload("maskvid", mask_video, STAGING_DIR)
+            elif mask_image is not None and mask_image.filename:
+                mask_path = _stage_upload("mask", mask_image, STAGING_DIR)
 
         # refs_role comes through as a parallel list (e.g., ["person","scene","outfit"])
         # to label which ref slot each file belongs to. Pad to length of ref_paths.
@@ -360,10 +368,20 @@ def create_app() -> FastAPI:
                     wf.set_input("900", "image", client.assets.from_file(str(person_ref)))
                     wf.json["136"]["inputs"]["ref_images.ref_image_0"] = ["900", 0]
                 for node_id in ("901", "902"):
+                    # Remove the node entirely; leaving a hollow entry makes
+                    # ComfyUI reject the whole graph ("no class_type").
                     wf.json.pop(node_id, None)
+                # `chosen` is emptied so the general loop below skips the
+                # scene/outfit slots entirely - calling set_input on a node
+                # that was just removed would re-create it as a hollow entry.
                 chosen = {}
+                swap_done = True
+            else:
+                swap_done = False
 
             for node_id, role in node_to_role.items():
+                if swap_done and node_id != "900":
+                    continue
                 source_path = chosen.get(role)
                 if source_path is None:
                     # Unused slot. Drop the ref link so H3 does not see a
@@ -386,7 +404,15 @@ def create_app() -> FastAPI:
             # through the SDK asset API like every other file, so the daemon
             # resolves it in its own input directory.
             if mode == MODE_SWAP and job.get("mask"):
-                wf.set_input("821", "image", client.assets.from_file(job["mask"]))
+                mask_path = Path(job["mask"])
+                if mask_path.suffix.lower() in (".mp4", ".mov", ".webm", ".mkv"):
+                    # A mask video tracks the subject across the clip: load it
+                    # as a video (822 -> 823 -> 824) and read its frames as
+                    # the mask, instead of a single still image.
+                    wf.set_input("822", "file", client.assets.from_file(str(mask_path)))
+                    wf.json["820"]["inputs"]["image"] = ["824", 0]
+                else:
+                    wf.set_input("821", "image", client.assets.from_file(str(mask_path)))
 
             # Patch the prompt
             wf.set_input("136", "prompt", job["prompt"] or _DEFAULT_PROMPT)
@@ -424,24 +450,20 @@ def create_app() -> FastAPI:
                 # "the rest of the shot survives" literally true.
                 if mode == MODE_SWAP and job.get("mask") and dest.suffix == ".mp4":
                     try:
-                        from composite import composite_swap, have_ffmpeg
-                        if have_ffmpeg():
-                            mask_path = Path(job["mask"])
-                            comp = composite_swap(
-                                source_video=Path(job["source"]),
-                                generated_video=dest,
-                                mask_path=mask_path,
-                                out_path=OUTPUT_DIR / ("swapped_" + dest.name),
-                                mask_is_video=mask_path.suffix.lower() in (".mp4", ".mov", ".webm"),
-                            )
-                            comp_dest = OUTPUT_DIR / ("swapped_" + dest.name)
-                            comp_dest.replace(dest)
-                            job["composite"] = comp
-                            job["log"].append(
-                                "composited: in-mask diff {in_mask_diff:.1f}, "
-                                "out-of-mask diff {out_mask_diff:.1f}, "
-                                "coverage {mask_coverage:.1%}".format(**comp)
-                            )
+                        from composite import composite_swap
+                        mask_path = Path(job["mask"])
+                        comp_dest = OUTPUT_DIR / ("swapped_" + dest.name)
+                        composite_swap(
+                            generated=dest,
+                            source=Path(job["source"]),
+                            mask=mask_path,
+                            out_path=comp_dest,
+                        )
+                        comp_dest.replace(dest)
+                        job["log"].append(
+                            "composited region-locked to the source "
+                            "(out-of-mask pixels identical to source)"
+                        )
                     except Exception as exc:
                         job["log"].append(f"composite skipped: {exc}")
                 label = "Output video" if output.name.endswith(".mp4") else output.name
