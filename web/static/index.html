@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Openjutsu — local motion transfer</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Openjutsu <small>· local motion transfer</small></h1>
+    <p class="tag">Open-source alternative to Higgsfield Genjutsu. H3 + H3 Fun ControlNet-Union + audio preservation, all on one RTX 5080.</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>1. Reference video (the choreography to extract)</h2>
+      <p class="hint">4–30 s · the source whose motion, timing, and camera will be preserved.</p>
+      <input id="source_video" type="file" accept="video/*" required>
+    </section>
+
+    <section class="card">
+      <h2>2. Reference images <small>· up to 9</small></h2>
+      <p class="hint">Characters, locations, or styles to drop into the video. Add nothing and the source video's first frame is used.</p>
+      <div id="ref-list" class="thumb-grid"></div>
+      <label class="add-btn">
+        + Add reference image
+        <input id="ref-add" type="file" accept="image/*" multiple hidden>
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>3. Prompt <small>· default: off</small></h2>
+      <p class="hint">Describe the scene. Leave blank for a neutral landscape.</p>
+      <label class="toggle">
+        <input id="prompt-on" type="checkbox">
+        <span>Enable prompt</span>
+      </label>
+      <textarea id="prompt" rows="4" disabled
+        placeholder="A graceful dancer performing expressive contemporary dance in a sunlit wildflower meadow at golden hour…"></textarea>
+    </section>
+
+    <section class="card">
+      <h2>4. Quality</h2>
+      <select id="quality">
+        <option value="864x480" selected>864×480 · 0.4 MP · ~3 min</option>
+        <option value="480x272">480×272 · 0.13 MP · faster</option>
+      </select>
+    </section>
+
+    <button id="go" class="primary">Generate ✨</button>
+
+    <section id="status" class="card hidden">
+      <h2>Render</h2>
+      <div id="status-line" class="status">queued…</div>
+      <pre id="log" hidden></pre>
+      <div id="outputs"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

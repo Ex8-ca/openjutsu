@@ -180,11 +180,50 @@ openjutsu/
 ├── examples/
 │   ├── dancer_field_pose.mp4   # source video (from ComfyUI's official examples)
 │   ├── dancer_ref.png          # reference image (first frame of source)
-│   └── output/
-│       └── openjutsu_demo_v1.mp4
-└── docs/
-    └── architecture.md       # deeper notes on node choices + memory budget
+│   │   ├── openjucer_v1.mp4            # H3-generated audio (kept for comparison)
+│   │   └── openjucer_v2.mp4            # source-audio preserved
+├── docs/
+│   └── architecture.md       # deeper notes on node choices + memory budget
+├── web/
+│   ├── server.py             # FastAPI web UI (Genjutsu-style form)
+│   └── static/
+│       ├── index.html        # source video, refs, prompt, quality
+│       ├── style.css         # dark theme, lime accent
+│       └── app.js            # upload + poll + render
 ```
+
+---
+
+## Local web UI
+
+The repo ships a FastAPI app that exposes the same workflow as a web
+form (Genjutsu-style: drop a source video, drop reference images, write
+a prompt, hit Generate). The demo video and audio preservation flow
+are both reachable from the UI.
+
+```bash
+# Terminal 1: ComfyUI daemon
+PYTHONPATH="" /home/marc/nvme-data/.comfyui/.venv/bin/python \
+    /home/marc/nvme-data/.comfyui/main.py --listen 0.0.0.0 --port 8188 \
+    --fp8_e4m3fn-unet --fp16-vae --enable-cors-header '*' \
+    --lowvram --reserve-vram 0.5 --vram-headroom 1 --log-stdout
+
+# Terminal 2: Comfy API proxy
+PYTHONPATH="" /home/marc/nvme-data/.comfyui/.venv/bin/comfy-api-proxy run \
+    --comfyui http://127.0.0.1:8188 --host 127.0.0.1 --port 8189 \
+    --comfyui-base-dir /home/marc/nvme-data/.comfyui --allow-insecure-bind
+
+# Terminal 3: Openjutsu web UI
+PYTHONPATH="" /home/marc/nvme-data/.comfyui/.venv/bin/python \
+    /home/marc/repos/openjutsu/web/server.py --host 0.0.0.0 --port 8765
+
+# Browser
+open http://localhost:8765
+```
+
+Uploads land in ComfyUI's input directory; the workflow is submitted
+through the Comfy SDK against `comfy-api-proxy`; outputs are streamed
+back to the browser via the `/outputs/{filename}` mount.
 
 ---
 
