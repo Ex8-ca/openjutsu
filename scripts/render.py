@@ -50,7 +50,13 @@ INPUT_NODE_ID = "174"   # LoadVideo node in the workflow
 
 
 def main() -> int:
-    base = os.environ.get("COMFY_BASE_URL", "http://127.0.0.1:8189")
+    # CRITICAL: set COMFY_BASE_URL BEFORE constructing the client so the SDK
+    # picks up our proxy URL instead of defaulting to Comfy Cloud (which
+    # requires an API key).
+    os.environ["COMFY_BASE_URL"] = os.environ.get(
+        "COMFY_BASE_URL", "http://127.0.0.1:8189"
+    )
+    base = os.environ["COMFY_BASE_URL"]
     print(f"Using COMFY_BASE_URL={base}")
     client = Comfy()
 

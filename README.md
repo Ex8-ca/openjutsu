@@ -22,11 +22,24 @@ rules.
 | **Input** | Source clip (4–30 s, 24 fps) + 1–9 reference images + optional prompt |
 | **Preprocess** | Canny edge map of the source (downscaled to fit VRAM, upscaled by the controlnet) |
 | **Generate** | H3 ref2va conditioned on the edge map, reference images, and prompt |
-| **Audio** | The source soundtrack is locked into H3's AV latent (zero denoise) and muxed into the output |
+| **Audio** | H3 generates fresh audio from the prompt (not preserved from source — see note below) |
 | **Output** | 864×480 / 24 fps / 5–15 s MP4 (H.264 + AAC) |
 
 The controlnet preserves motion. The reference images preserve identity.
 The prompt gives you stylistic control.
+
+> **Note on audio**: this build generates new audio with H3's native audio
+> head rather than preserving the source clip's audio byte-for-byte. The
+> `comfyui-vrgamedevgirl` pack ships a `VRGDG_MiniMaxH3AudioDrive` node
+> that does lock the source audio via a zero-denoise mask, and the
+> workflow wires up to it cleanly. We left that node out of the committed
+> workflow because its `torchaudio` dependency has no cu130 wheel
+> compatible with torch 2.14.1, and a `scipy`-backed shim is the natural
+> drop-in if you want to wire it back in. To restore source-audio
+> preservation: install torchaudio (`pip install torchaudio`), add node
+> `VRGDG_MiniMaxH3AudioDrive` between `MiniMaxH3ReferenceToVideo` and
+> `SamplerCustomAdvanced`, feed its `original_audio` output into
+> `CreateVideo.audio`.
 
 ---
 
@@ -76,14 +89,10 @@ int8, 21 GB)     NVFP4 AWQ)         int8, 2.6 GB)     Union, 2.3 GB)
 
                                 │
                                 ▼
-                VRGDG_MiniMaxH3AudioDrive
-                  (locks source audio into AV latent
-                   with zero-denoise mask, passes audio
-                   through to the final mux)
-
-                                │
-                                ▼
                   KSampler → VAEDecode → CreateVideo → SaveVideo
+                      │
+                      └─ audio: H3-generated from prompt (or source-preserved
+                         if you wire in VRGDG_MiniMaxH3AudioDrive — see note above)
 ```
 
 Memory note: H3 alone needs ~13.5 GB VRAM; the controlnet adds ~2 GB; the

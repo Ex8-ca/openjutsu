@@ -36,14 +36,14 @@ controlnet still produces edges at the resolution H3 generates at.
 If you have ≥24 GB VRAM, delete the `ImageScale` node (id `850`) and let
 Canny see the source at full resolution.
 
-## Why `MiniMaxH3AudioDrive` (and not the default audio latent)
+## Why `MiniMaxH3ReferenceToVideo`'s native audio slots (and not `VRGDG_MiniMaxH3AudioDrive`)
 
 H3's native audio generation produces plausible sound for the prompt
-description, but **it does not preserve the source clip's audio**. For
-motion transfer we want the original soundtrack untouched.
+description, but **it does not preserve the source clip's audio**. The
+demo output's audio is H3-generated.
 
-`VRGDG_MiniMaxH3AudioDrive` from the `comfyui-vrgamedevgirl` custom
-node pack does three things:
+The `comfyui-vrgamedevgirl` pack ships a `VRGDG_MiniMaxH3AudioDrive`
+node that locks the source audio via three steps:
 
 1. Encode the source audio through the H3 audio VAE into H3's AV latent
    audio slot.
@@ -57,9 +57,28 @@ After sampling and decode, the audio passes through unchanged into the
 muxed output via `CreateVideo` (which combines images + audio into the
 final `VIDEO` object that `SaveVideo` writes).
 
-The official ComfyUI template uses the same approach via the
-`MiniMaxH3AudioDrive` path implicitly through the audio conditioning
-slots; VRGDG's wrapper is just the explicit version of that.
+**Why it's not in the committed workflow**: this build targets a 16 GB
+card with torch 2.14.1+cu130. The only `torchaudio` cu130 wheels
+(2.9.0, 2.9.1, 2.10.0, 2.11.0) all require torch 2.9 or 2.10 and break
+the torchvision/torch ABI when forced. A `scipy.signal.resample_poly`
+backed shim is a clean drop-in if you want source-audio preservation;
+until then the demo lives without it.
+
+**If you have ≥24 GB VRAM and freedom to install whatever you want**,
+the simplest path is:
+
+```bash
+pip install torchaudio            # let it pick its torch + cuda
+# then in the workflow, add VRGDG_MiniMaxH3AudioDrive between
+# MiniMaxH3ReferenceToVideo (output 1) and SamplerCustomAdvanced (latent_image),
+# feed its original_audio output into CreateVideo.audio.
+```
+
+H3's own `MiniMaxH3ReferenceToVideo` also exposes `ref_video_audios`
+slots that preserve audio when you pass it a video reference with its
+soundtrack — but the demo intentionally keeps the source video in the
+controlnet path only, not in the reference-to-video path, so this slot
+isn't populated either.
 
 ## Why `--lowvram` and **not** `--disable-smart-memory`
 
