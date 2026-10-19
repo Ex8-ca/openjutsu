@@ -84,6 +84,8 @@ def create_app() -> FastAPI:
     # We mount OUTPUT_DIR directly so it doesn't conflict with /static.
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     app.mount("/outputs", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs")
+
+    @app.get("/")
     async def index() -> FileResponse:
         return FileResponse(STATIC_ROOT / "index.html")
 
