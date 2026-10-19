@@ -14,6 +14,36 @@ a local ComfyUI daemon) to satisfy the
 
 ---
 
+## Try it
+
+The app is running publicly for the contest:
+
+**<https://ai5080.taila6e2e.ts.net:8443>**
+
+`/api/*` is behind a shared-secret token (`OPENJUTSU_TOKEN`), because
+`/api/generate` renders video on the GPU and the app has no accounts. If you
+get a `401`, ask for the token, or run it yourself — it is four commands
+below.
+
+Watch the results without rendering anything:
+
+| Clip | |
+|---|---|
+| [`/examples/openjutsu_demo_reel.mp4`](examples/openjutsu_demo_reel.mp4) | 90 s demo reel (both modes, how it is built) |
+| [`/examples/openjutsu_demo.mp4`](examples/openjutsu_demo.mp4) | Motion Transfer result |
+| [`/examples/openjutsu_swap_demo.mp4`](examples/openjutsu_swap_demo.mp4) | Object Swap result — the dancer is replaced by the reference character, the meadow is untouched |
+
+### Object Swap, honestly
+
+H3's controlnet treats its `mask` input as a soft hint, not a region lock, so
+the whole frame drifts. `web/composite.py` composites the render over the
+source afterwards: the measured difference outside the mask drops to **2.49
+mean absolute** — which is H.264 re-encode loss, since re-encoding the source
+through the same encoder gives 2.41. Selectivity (in-mask vs out-of-mask
+divergence) goes from **1.27x to 9.10x**.
+
+---
+
 ## What it does
 
 | Stage | What happens |
@@ -128,6 +158,7 @@ Every path is environment-driven, so the app runs on any machine:
 | `COMFYUI_BASE_URL` | `http://127.0.0.1:8188` | Used only to probe which node types exist |
 | `OPENJUTSU_OUTPUT_DIR` | `<repo>/web/outputs` | Where rendered outputs are written |
 | `OPENJUTSU_WORKFLOW` | `auto` | Force `core` or `audio` instead of auto-detecting |
+| `OPENJUTSU_TOKEN` | *(unset)* | Shared secret for the `/api/*` endpoints. Unset = open, which is fine on localhost. Set it before exposing the app to the internet, because `/api/generate` renders on the GPU. |
 
 ---
 
