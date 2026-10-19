@@ -86,8 +86,8 @@
         0
       ],
       "latent_image": [
-        "136",
-        1
+        "1000",
+        0
       ]
     }
   },
@@ -135,7 +135,11 @@
       ],
       "fps": 24,
       "bit_depth": "auto",
-      "color_space": "sRGB"
+      "color_space": "sRGB",
+      "audio": [
+        "1000",
+        1
+      ]
     }
   },
   "131": {
@@ -374,6 +378,23 @@
     "class_type": "LoadImage",
     "inputs": {
       "image": "dancer_ref.png"
+    }
+  },
+  "1000": {
+    "class_type": "VRGDG_MiniMaxH3AudioDrive",
+    "inputs": {
+      "av_latent": [
+        "136",
+        1
+      ],
+      "source_audio": [
+        "709",
+        1
+      ],
+      "audio_vae": [
+        "120",
+        0
+      ]
     }
   }
 }

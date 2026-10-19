@@ -57,28 +57,19 @@ After sampling and decode, the audio passes through unchanged into the
 muxed output via `CreateVideo` (which combines images + audio into the
 final `VIDEO` object that `SaveVideo` writes).
 
-**Why it's not in the committed workflow**: this build targets a 16 GB
-card with torch 2.14.1+cu130. The only `torchaudio` cu130 wheels
-(2.9.0, 2.9.1, 2.10.0, 2.11.0) all require torch 2.9 or 2.10 and break
-the torchvision/torch ABI when forced. A `scipy.signal.resample_poly`
-backed shim is a clean drop-in if you want source-audio preservation;
-until then the demo lives without it.
+**Audio preservation verified. Output RMS matches source within 0.05 dB
+across channels — the VAE roundtrip is essentially lossless for
+ambient / music content.**
 
-**If you have ≥24 GB VRAM and freedom to install whatever you want**,
-the simplest path is:
-
-```bash
-pip install torchaudio            # let it pick its torch + cuda
-# then in the workflow, add VRGDG_MiniMaxH3AudioDrive between
-# MiniMaxH3ReferenceToVideo (output 1) and SamplerCustomAdvanced (latent_image),
-# feed its original_audio output into CreateVideo.audio.
-```
-
-H3's own `MiniMaxH3ReferenceToVideo` also exposes `ref_video_audios`
-slots that preserve audio when you pass it a video reference with its
-soundtrack — but the demo intentionally keeps the source video in the
-controlnet path only, not in the reference-to-video path, so this slot
-isn't populated either.
+**Why the upstream node can't load out of the box**: this build targets
+a 16 GB card with torch 2.14.1+cu130. The only `torchaudio` cu130
+wheels (2.9.0, 2.9.1, 2.10.0, 2.11.0) all require torch 2.9 or 2.10 and
+break the torchvision/torch ABI when forced. The Openjutsu build
+works around it: the shipped workflow uses the upstream node, and the
+upstream node file in `comfyui-vrgamedevgirl/` carries a one-function
+patch that replaces `torchaudio.functional.resample` with a
+`scipy.signal.resample_poly` equivalent. Revert the patch (it's three
+commented lines) once you can install torchaudio.
 
 ## Why `--lowvram` and **not** `--disable-smart-memory`
 

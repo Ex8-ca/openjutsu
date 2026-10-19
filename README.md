@@ -22,24 +22,21 @@ rules.
 | **Input** | Source clip (4–30 s, 24 fps) + 1–9 reference images + optional prompt |
 | **Preprocess** | Canny edge map of the source (downscaled to fit VRAM, upscaled by the controlnet) |
 | **Generate** | H3 ref2va conditioned on the edge map, reference images, and prompt |
-| **Audio** | H3 generates fresh audio from the prompt (not preserved from source — see note below) |
+| **Audio** | Source audio is VAE-encoded and locked into the AV latent with a zero-denoise mask, then muxed into the output untouched |
 | **Output** | 864×480 / 24 fps / 5–15 s MP4 (H.264 + AAC) |
 
 The controlnet preserves motion. The reference images preserve identity.
-The prompt gives you stylistic control.
+The prompt gives you stylistic control. The `VRGDG_MiniMaxH3AudioDrive`
+node preserves the source clip's audio.
 
-> **Note on audio**: this build generates new audio with H3's native audio
-> head rather than preserving the source clip's audio byte-for-byte. The
-> `comfyui-vrgamedevgirl` pack ships a `VRGDG_MiniMaxH3AudioDrive` node
-> that does lock the source audio via a zero-denoise mask, and the
-> workflow wires up to it cleanly. We left that node out of the committed
-> workflow because its `torchaudio` dependency has no cu130 wheel
-> compatible with torch 2.14.1, and a `scipy`-backed shim is the natural
-> drop-in if you want to wire it back in. To restore source-audio
-> preservation: install torchaudio (`pip install torchaudio`), add node
-> `VRGDG_MiniMaxH3AudioDrive` between `MiniMaxH3ReferenceToVideo` and
-> `SamplerCustomAdvanced`, feed its `original_audio` output into
-> `CreateVideo.audio`.
+> **Note on audio + `torchaudio`**: `VRGDG_MiniMaxH3AudioDrive` originally
+> used `torchaudio.functional.resample`. No `torchaudio` cu130 wheel is
+> compatible with torch 2.14.1, so the node as shipped can't load on
+> the build target (RTX 5080 / 16 GB). This repo ships a one-function
+> patch in `comfyui-vrgamedevgirl/VRGDG_MiniMaxH3AudioDrive.py` that
+> replaces the `torchaudio` call with a `scipy.signal.resample_poly`
+> equivalent. The patch is clearly commented, so the next VRGDG release
+> shows the diff and you can either keep it or revert to upstream.
 
 ---
 
