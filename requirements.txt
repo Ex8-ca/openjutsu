@@ -1,0 +1,8 @@
+# ComfyUI deps (none beyond what ComfyUI ships)
+# The Comfy SDK + Comfy API Proxy are pip extras installed at the daemon host.
+# They are intentionally NOT in this repo's requirements.txt because the
+# contest build runs against a ComfyUI install where these are added.
+
+# Required (installed once on the host that talks to ComfyUI):
+#   pip install comfy-sdk>=0.3.0
+#   pip install comfy-api-proxy

@@ -1,0 +1,27 @@
+# OS / editor noise
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ComfyUI runtime artefacts
+input/
+output/
+models/
+user/comfyui.db
+user/comfyui.db-journal
+*.log
+
+# Render outputs (these are large — keep them local)
+examples/output/*.mp4
+examples/output/frames/
+renders/
