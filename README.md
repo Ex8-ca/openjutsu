@@ -180,8 +180,8 @@ openjutsu/
 ├── examples/
 │   ├── dancer_field_pose.mp4   # source video (from ComfyUI's official examples)
 │   ├── dancer_ref.png          # reference image (first frame of source)
-│   │   ├── openjucer_v1.mp4            # H3-generated audio (kept for comparison)
-│   │   └── openjucer_v2.mp4            # source-audio preserved
+│   │   ├── openjutsu_demo_v1.mp4        # H3-generated audio (kept for comparison)
+│   │   └── openjutsu_demo_v2.mp4        # source-audio preserved
 ├── docs/
 │   └── architecture.md       # deeper notes on node choices + memory budget
 ├── web/
