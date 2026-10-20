@@ -36,7 +36,8 @@
 
     <section class="card" id="swap-mask-card" hidden>
       <h2>3. What to replace <small>· draw a region on the frame</small></h2>
-      <p class="hint">Drag a box over the thing to swap &mdash; the person, the coat, the sign. That region is regenerated; the rest of the shot is kept from the source.</p>
+      <p class="hint">Drag a box <strong>tight around the thing to swap</strong> &mdash; the person, the coat, the sign. That region is regenerated; the rest of the shot is kept from the source.</p>
+      <p class="hint">Keep it snug. A region covering most of the shot gives the model room to paint a background of its own, and the replacement arrives as a framed panel instead of blending in.</p>
       <div class="select-wrap">
         <canvas id="select-canvas" width="640" height="360"></canvas>
         <p class="hint" id="selection-status">No region selected yet &mdash; drag a box over the thing to replace.</p>
@@ -113,6 +114,6 @@
   </main>
 
   <script src="/static/app.js?v=3"></script>
-  <script src="/static/selection.js?v=8"></script>
+  <script src="/static/selection.js?v=9"></script>
 </body>
 </html>
