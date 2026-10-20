@@ -228,3 +228,89 @@ video {
   font-size: 12px;
   margin-top: 3px;
 }
+
+/* -- Object Swap selection canvas ---------------------------------------- */
+.select-wrap {
+  margin-top: 0.75rem;
+}
+#select-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 46vh;
+  object-fit: contain;
+  background:
+    repeating-conic-gradient(#1b1b22 0% 25%, #14141a 0% 50%) 50% / 22px 22px;
+  border: 1px solid #2a2a33;
+  border-radius: 10px;
+  cursor: crosshair;
+  touch-action: none;
+}
+#selection-status {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  color: #9aa0a6;
+  margin-top: 0.5rem;
+}
+.select-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.35rem;
+}
+.ghost-btn {
+  background: transparent;
+  border: 1px solid #33333d;
+  color: #cfd2d6;
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.ghost-btn:hover {
+  border-color: #ffd447;
+  color: #ffd447;
+}
+.advanced {
+  margin-top: 0.9rem;
+  border-top: 1px solid #26262e;
+  padding-top: 0.6rem;
+}
+.advanced summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: #9aa0a6;
+  list-style: none;
+}
+.advanced summary::-webkit-details-marker {
+  display: none;
+}
+.advanced summary::before {
+  content: "▸ ";
+  color: #ffd447;
+}
+.advanced[open] summary::before {
+  content: "▾ ";
+}
+.advanced summary:hover {
+  color: #ffd447;
+}
+.advanced .hint {
+  margin-top: 0.5rem;
+}
+.toggle.compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  color: #cfd2d6;
+  cursor: pointer;
+}
+.toggle.compact input {
+  width: auto;
+  margin: 0;
+}
+#track-note {
+  margin-top: 0.45rem;
+  font-size: 0.78rem;
+}

@@ -60,7 +60,7 @@ os.environ["COMFY_BASE_URL"] = os.environ.get("COMFY_BASE_URL", "http://127.0.0.
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 
@@ -190,6 +190,26 @@ def _example_ref_for(role: str) -> Path | None:
     return src if src.exists() else None
 
 
+def _track_region(video: Path, region: dict, seed_mask: Path) -> Path | None:
+    """Follow a drawn region across the clip and return a per-frame mask.
+
+    The rectangle the user drew seeds a tracker, so the mask stays on the
+    subject instead of drifting off it the way a hand-made mask video did.
+    Returns None when the region cannot be tracked, in which case the
+    caller keeps the mask the user drew.
+    """
+    try:
+        from region_track import track_region
+    except ImportError:
+        return None
+    try:
+        out = STAGING_DIR / "tracked_region.mp4"
+        return track_region(video, region, out)
+    except Exception as exc:  # tracking is a nicety, not a requirement
+        print(f"region tracking failed: {type(exc).__name__}: {exc}", flush=True)
+        return None
+
+
 def create_app() -> FastAPI:
     from comfy_sdk import Comfy  # imported lazily so the COMFY_BASE_URL env is set
 
@@ -242,7 +262,11 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def token_gate(request, call_next):
-        if _TOKEN and request.url.path.startswith("/api/"):
+        # The frame preview is cheap and read-only, and the selection
+        # canvas needs it before the user has any other way to pass the
+        # token, so it stays open.
+        if (_TOKEN and request.url.path.startswith("/api/")
+                and not request.url.path.startswith("/api/preview-frame")):
             if not _token_ok(request):
                 return JSONResponse(
                     {"error": "unauthorized", "hint": "pass ?token=... or set the cookie"},
@@ -261,6 +285,37 @@ def create_app() -> FastAPI:
     @app.get("/")
     async def index() -> FileResponse:
         return FileResponse(STATIC_ROOT / "index.html")
+
+    @app.post("/api/preview-frame")
+    async def preview_frame(source_video: UploadFile = File(...)) -> Response:
+        """Return a still frame of the uploaded video, as a PNG.
+
+        The selection canvas draws this frame so the user can mark the
+        region to replace. Doing it server-side means the browser does not
+        need to decode the clip itself, which fails for codecs the
+        browser does not ship (H.264 in a Chromium build without
+        proprietary codecs) and for the odd container the OS cannot
+        preview.
+        """
+        import subprocess
+
+        if not source_video.filename:
+            raise HTTPException(400, "source_video is required")
+        staged = _stage_upload("preview", source_video, STAGING_DIR)
+        try:
+            proc = subprocess.run(
+                ["ffmpeg", "-y", "-v", "error", "-ss", "0.5", "-i", str(staged),
+                 "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
+                check=True, capture_output=True, timeout=60,
+            )
+            data = proc.stdout
+            if not data:
+                raise HTTPException(422, "could not read a frame from that video")
+            return Response(content=data, media_type="image/png")
+        except subprocess.CalledProcessError as exc:
+            raise HTTPException(422, "could not read that video") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(422, "that video took too long to read") from exc
 
     @app.get("/healthz")
     async def healthz() -> dict:
@@ -286,6 +341,8 @@ def create_app() -> FastAPI:
         mode: str = Form(default=MODE_TRANSFER),
         mask_image: UploadFile | None = File(default=None),
         mask_video: UploadFile | None = File(default=None),
+        mask_rect: str = Form(default=""),
+        track_region: int = Form(default=0),
     ) -> dict:
         if not source_video.filename:
             raise HTTPException(400, "source_video is required")
@@ -309,6 +366,27 @@ def create_app() -> FastAPI:
                 mask_path = _stage_upload("maskvid", mask_video, STAGING_DIR)
             elif mask_image is not None and mask_image.filename:
                 mask_path = _stage_upload("mask", mask_image, STAGING_DIR)
+
+        # A drawn region (from the selection canvas) is the primary path.
+        #
+        # The rectangle is used as a still mask by default: it is what the
+        # user pointed at, and the composite afterwards expands the region
+        # to whatever the model actually replaced, so the rest of the shot
+        # is still restored from the source.
+        #
+        # With track=1 the rectangle instead seeds a per-frame tracker, so
+        # the mask follows a moving subject. That is more precise but can
+        # clip the replacement, so it is opt-in.
+        region = None
+        if mode == MODE_SWAP and mask_rect:
+            try:
+                region = json.loads(mask_rect)
+            except (TypeError, ValueError):
+                region = None
+        if mode == MODE_SWAP and region and mask_path is not None and track_region:
+            tracked = _track_region(video_path, region, mask_path)
+            if tracked is not None:
+                mask_path = tracked
 
         # refs_role comes through as a parallel list (e.g., ["person","scene","outfit"])
         # to label which ref slot each file belongs to. Pad to length of ref_paths.

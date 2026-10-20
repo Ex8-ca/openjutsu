@@ -43,6 +43,35 @@ $$(".ref-slot").forEach((slotEl) => {
   });
 });
 
+// -- source video -> selection canvas --------------------------------------
+const sourceInput = $("#source_video");
+if (sourceInput) {
+  sourceInput.addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (f && window.openjutsuSelection) {
+      window.openjutsuSelection.loadFrame(f).catch((err) => {
+        const el = $("#selection-status");
+        if (el) el.textContent = `could not read that video: ${err}`;
+      });
+    }
+  });
+}
+
+const trackBox = $("#track-region");
+const trackNote = $("#track-note");
+if (trackBox && trackNote) {
+  trackBox.addEventListener("change", () => {
+    trackNote.hidden = !trackBox.checked;
+  });
+}
+
+const clearBtn = $("#selection-clear");
+if (clearBtn) {
+  clearBtn.addEventListener("click", () => {
+    if (window.openjutsuSelection) window.openjutsuSelection.clear();
+  });
+}
+
 // -- mode switch ----------------------------------------------------------
 const swapCard = $("#swap-mask-card");
 const maskInput = $("#swap_mask");
@@ -106,9 +135,27 @@ goBtn.addEventListener("click", async () => {
   const mode = $('input[name="mode"]:checked').value;
   fd.append("mode", mode);
   if (mode === "swap") {
-    const mask = maskInput.files[0];
-    if (!mask) return alert("Object Swap needs a mask image.");
-    fd.append("mask_image", mask);
+    // A drawn region is the primary path: it is exactly what the user
+    // pointed at. Fall back to a mask file only if nothing was drawn.
+    const sel = window.openjutsuSelection;
+    if (sel && sel.has()) {
+      const blob = await sel.blob();
+      if (blob) {
+        fd.append("mask_image", blob, "selection.png");
+        const rect = sel.rect();
+        fd.append("mask_rect", JSON.stringify(rect));
+        if (document.querySelector("#track-region")?.checked) {
+          fd.append("track_region", "1");
+        }
+      }
+    } else {
+      const mask = maskInput.files[0];
+      if (!mask) {
+        alert("Draw a region over the thing to replace (or provide a mask image).");
+        return;
+      }
+      fd.append("mask_image", mask);
+    }
   }
   for (const role of ["person", "scene", "outfit"]) {
     if (refs[role]) fd.append("ref_images", refs[role]);

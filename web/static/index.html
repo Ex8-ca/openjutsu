@@ -35,10 +35,26 @@
     </section>
 
     <section class="card" id="swap-mask-card" hidden>
-      <h2>3. Swap mask <small>· white = replace</small></h2>
-      <p class="hint">A mask image over the thing to replace. White pixels are regenerated; black pixels are kept from the source. One image is reused across every frame.</p>
-      <input id="swap_mask" type="file" accept="image/*" required>
-      <p class="hint" id="swap-mask-name"></p>
+      <h2>3. What to replace <small>· draw a region on the frame</small></h2>
+      <p class="hint">Drag a box over the thing to swap &mdash; the person, the coat, the sign. That region is regenerated; the rest of the shot is kept from the source.</p>
+      <div class="select-wrap">
+        <canvas id="select-canvas" width="640" height="360"></canvas>
+        <p class="hint" id="selection-status">No region selected yet &mdash; drag a box over the thing to replace.</p>
+        <div class="select-actions">
+          <button type="button" id="selection-clear" class="ghost-btn">Clear region</button>
+          <label class="toggle compact">
+            <input id="track-region" type="checkbox">
+            <span>Follow the subject across the clip</span>
+          </label>
+        </div>
+        <p class="hint" id="track-note" hidden>Tracking follows the region frame by frame. It is more precise for a moving subject, but it can clip a replacement that is larger than the original, so it is off by default.</p>
+      </div>
+      <details class="advanced">
+        <summary>Use a mask image instead</summary>
+        <p class="hint">A mask image over the thing to replace. White pixels are regenerated; black pixels are kept from the source. One image is reused across every frame.</p>
+        <input id="swap_mask" type="file" accept="image/*">
+        <p class="hint" id="swap-mask-name"></p>
+      </details>
     </section>
 
     <section class="card">
@@ -96,6 +112,7 @@
     </section>
   </main>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=3"></script>
+  <script src="/static/selection.js?v=8"></script>
 </body>
 </html>
