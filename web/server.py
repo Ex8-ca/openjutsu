@@ -600,12 +600,30 @@ def create_app() -> FastAPI:
                         binding = marker
                         template = template.replace(marker, "").strip()
                         break
+                # The template also carries the scene-continuity clause.
+                # Without it the model treats the marked region as a separate
+                # picture and invents a background for it, which shows up as
+                # a hard frame around the replacement. Keep it even when the
+                # user writes their own description.
+                continuity = ""
+                for marker in ("The background, lighting, camera angle and environment "
+                               "stay exactly as in the source video; only the person "
+                               "in the marked region changes.",):
+                    if marker in template:
+                        continuity = marker
+                        template = template.replace(marker, "").strip()
+                        break
                 text = (job["prompt"] or "").strip()
                 if text:
                     description = text
                 else:
                     description = template.strip().rstrip(".") or "A person in the scene"
-                merged = f"{description} {binding}".strip() if binding else description
+                parts = [description]
+                if binding:
+                    parts.append(binding)
+                if continuity:
+                    parts.append(continuity)
+                merged = " ".join(parts).strip()
                 wf.set_input("772", "value", merged)
             else:
                 wf.set_input("136", "prompt", job["prompt"] or _DEFAULT_PROMPT)

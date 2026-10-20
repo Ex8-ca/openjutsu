@@ -122,7 +122,7 @@
   "129": {
     "class_type": "RandomNoise",
     "inputs": {
-      "noise_seed": 1086599926715797,
+      "noise_seed": 42,
       "control_after_generate": "fixed"
     }
   },
@@ -282,7 +282,7 @@
         "119",
         0
       ],
-      "strength": 0.35,
+      "strength": 0.45,
       "start_percent": 0,
       "end_percent": 1,
       "mask": [
@@ -360,13 +360,13 @@
   "900": {
     "class_type": "LoadImage",
     "inputs": {
-      "image": "dancer_ref.png"
+      "image": "ref_plate.png"
     }
   },
   "772": {
     "class_type": "PrimitiveString",
     "inputs": {
-      "value": "A samurai in ornate crimson armor with a horned helmet. The face is the face of the person in <Picture 1>."
+      "value": "A samurai in ornate crimson lacquered armour with a horned kabuto helmet, the person in <Picture 1>."
     }
   },
   "821": {
