@@ -19,12 +19,18 @@ from pathlib import Path
 import numpy as np
 
 WIDTH, HEIGHT, FPS = 672, 384, 24
-THRESHOLD = 90       # summed abs difference against the background
-DILATE = 70          # pixels of dilation. The replacement subject is often
-                    # LARGER than the one it replaces (armour, a hat, a
-                    # prop), so the hole has to be generous or the new
-                    # subject is clipped and the composite shows a hybrid.
+THRESHOLD = 60       # summed abs difference against the background
+DILATE = 12          # pixels of dilation, to cover the soft edge of the
+                    # subject and any motion blur around it.
 KEEP_BLOBS = 1
+# A person is not one blob: an outstretched arm, a trailing sleeve or a
+# strand of hair detaches from the torso and shows up as its own blob.
+# Keeping only the largest blob drops those parts, and the swap then leaves
+# them behind - a composite showing the new subject wearing the old one's
+# arm. So keep every blob that is (a) a meaningful fraction of the main one
+# and (b) spatially close to it.
+MIN_BLOB_FRACTION = 0.15
+MAX_BLOB_DISTANCE = 260
 
 
 def decode(path: Path) -> np.ndarray:
@@ -36,8 +42,8 @@ def decode(path: Path) -> np.ndarray:
     return np.frombuffer(out, np.uint8)[: n * WIDTH * HEIGHT * 3].reshape(n, HEIGHT, WIDTH, 3)
 
 
-def keep_largest(mask: np.ndarray, k: int = KEEP_BLOBS) -> np.ndarray:
-    """Keep the k biggest 4-connected blobs, without needing scipy."""
+def label_blobs(mask: np.ndarray):
+    """Label 4-connected blobs and return (labels, sizes), no scipy needed."""
     labels = np.zeros(mask.shape, np.int32)
     current = 0
     sizes: dict[int, int] = {}
@@ -58,10 +64,37 @@ def keep_largest(mask: np.ndarray, k: int = KEEP_BLOBS) -> np.ndarray:
                             labels[ny, nx] = current
                             stack.append((ny, nx))
                 sizes[current] = size
+    return labels, sizes
+
+
+def keep_subject(mask: np.ndarray, k: int = KEEP_BLOBS) -> np.ndarray:
+    """Keep the main blob plus any nearby blob that is part of the subject.
+
+    A limb or a sleeve that has detached from the torso is a separate
+    connected component. Dropping it leaves the old subject's arm in the
+    final composite, so those are kept too when they are big enough and
+    close enough to the main body.
+    """
+    labels, sizes = label_blobs(mask)
     if not sizes:
         return mask
-    keep = sorted(sizes, key=sizes.get, reverse=True)[:k]
-    return np.isin(labels, keep)
+    order = sorted(sizes, key=sizes.get, reverse=True)
+    keep = {order[0]}
+    main = labels == order[0]
+    ys, xs = np.nonzero(main)
+    cy, cx = ys.mean(), xs.mean()
+    for blob in order[1:]:
+        if sizes[blob] < sizes[order[0]] * MIN_BLOB_FRACTION:
+            break
+        by, bx = np.nonzero(labels == blob)
+        if by.size == 0:
+            continue
+        distance = np.sqrt(((by - cy) ** 2 + (bx - cx) ** 2).min())
+        if distance <= MAX_BLOB_DISTANCE:
+            keep.add(blob)
+    if k > 1:
+        keep.update(order[:k])
+    return np.isin(labels, list(keep))
 
 
 def dilate(mask: np.ndarray, rounds: int = DILATE) -> np.ndarray:
@@ -93,7 +126,7 @@ def main() -> int:
     tmp.mkdir(parents=True, exist_ok=True)
     for t in range(frames.shape[0]):
         fg = diff[t] > THRESHOLD
-        fg = dilate(keep_largest(fg))
+        fg = dilate(keep_subject(fg))
         Image.fromarray((fg * 255).astype(np.uint8)).save(tmp / f"m{t:04d}.png")
 
     cmd = ["ffmpeg", "-v", "error", "-y", "-framerate", str(FPS),

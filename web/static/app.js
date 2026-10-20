@@ -6,6 +6,88 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 // refs is now {person?: File, scene?: File, outfit?: File}
 const refs = {};
 
+// ---------------------------------------------------------------------------
+// Access token
+// ---------------------------------------------------------------------------
+// The server can gate the expensive /api/* endpoints behind a shared secret
+// (OPENJUTSU_TOKEN). When that is set, the browser needs the token as a
+// cookie or a query parameter. A 401 is recoverable: ask for the token,
+// store it, and retry - do not dead-end the user with a raw error string.
+const TOKEN_KEY = "openjutsu_token";
+
+function getToken() {
+  return localStorage.getItem(TOKEN_KEY) || "";
+}
+
+function setToken(value) {
+  const t = (value || "").trim();
+  if (t) {
+    localStorage.setItem(TOKEN_KEY, t);
+  } else {
+    localStorage.removeItem(TOKEN_KEY);
+  }
+}
+
+// The server sets the cookie when the app is opened as /?token=...; the
+// stored token is sent as a query parameter as well so the app still works
+// when cookies are blocked.
+function withToken(url) {
+  const t = getToken();
+  if (!t) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}token=${encodeURIComponent(t)}`;
+}
+
+async function apiFetch(url, options) {
+  const opts = options || {};
+  const headers = new Headers((opts && opts.headers) || {});
+  const stored = getToken();
+  if (stored) headers.set("X-Openjutsu-Token", stored);
+  opts.headers = headers;
+  let resp = await fetch(withToken(url), opts);
+  if (resp.status === 401) {
+    const token = await promptForToken();
+    if (token) {
+      setToken(token);
+      resp = await fetch(withToken(url), opts);
+    }
+  }
+  return resp;
+}
+
+// Ask for the token. Resolves with the token string, or null if cancelled.
+function promptForToken() {
+  return new Promise((resolve) => {
+    const existing = document.getElementById("token-prompt");
+    if (existing) existing.remove();
+    const wrap = document.createElement("div");
+    wrap.id = "token-prompt";
+    wrap.className = "token-prompt";
+    wrap.innerHTML = `
+      <div class="token-prompt-card">
+        <h3>This server is access-controlled</h3>
+        <p>The <code>/api/*</code> endpoints need an access token.
+           Open the app URL with <code>?token=YOUR_TOKEN</code> once, or paste
+           the token here.</p>
+        <input id="token-input" type="password" placeholder="access token" autocomplete="off">
+        <div class="token-prompt-actions">
+          <button id="token-cancel" class="btn-secondary" type="button">Cancel</button>
+          <button id="token-ok" class="btn-primary" type="button">Unlock</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    const input = wrap.querySelector("#token-input");
+    const done = (value) => { wrap.remove(); resolve(value); };
+    wrap.querySelector("#token-ok").addEventListener("click", () => done(input.value.trim()));
+    wrap.querySelector("#token-cancel").addEventListener("click", () => done(null));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") done(input.value.trim());
+      if (e.key === "Escape") done(null);
+    });
+    input.focus();
+  });
+}
+
 // -- reference image upload (per role slot) -----------------------------
 function renderThumb(slot) {
   const slotEl = document.querySelector(`.ref-slot[data-role="${slot}"]`);
@@ -104,7 +186,7 @@ $("#enhance-prompt").addEventListener("click", async () => {
   btn.disabled = true;
   btn.textContent = "✨ Enhancing…";
   try {
-    const resp = await fetch("/api/enhance-prompt", {
+    const resp = await apiFetch("/api/enhance-prompt", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: `prompt=${encodeURIComponent(promptEl.value)}`
@@ -176,7 +258,7 @@ goBtn.addEventListener("click", async () => {
   let lastErr = "";
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {
-      resp = await fetch("/api/generate", { method: "POST", body: fd });
+      resp = await apiFetch("/api/generate", { method: "POST", body: fd });
       break;
     } catch (e) {
       lastErr = String(e);
@@ -197,7 +279,10 @@ goBtn.addEventListener("click", async () => {
   if (!resp.ok) {
     const t = await resp.text();
     $("#status-line").classList.add("error");
-    if (resp.status === 429) {
+    if (resp.status === 401) {
+      $("#status-line").textContent =
+        `unauthorized: this server needs an access token. Reload with ?token=YOUR_TOKEN, or enter it when prompted.`;
+    } else if (resp.status === 429) {
       $("#status-line").textContent =
         `busy: ${t} — this box renders one clip at a time.`;
     } else {
@@ -214,7 +299,7 @@ goBtn.addEventListener("click", async () => {
   const start = Date.now();
   const poll = async () => {
     let r;
-    try { r = await fetch(`/api/jobs/${job_id}`); } catch { return setTimeout(poll, 4000); }
+    try { r = await apiFetch(`/api/jobs/${job_id}`); } catch { return setTimeout(poll, 4000); }
     if (!r.ok) return setTimeout(poll, 4000);
     const data = await r.json();
     const elapsed = ((Date.now() - start) / 1000).toFixed(1);

@@ -256,8 +256,18 @@ def create_app() -> FastAPI:
     def _token_ok(request) -> bool:
         if not _TOKEN:
             return True
-        supplied = request.query_params.get("token", "") or \
-            request.cookies.get("OPENJUTSU_TOKEN", "")
+        # Accepted in three places, in order of preference:
+        #   - a query parameter (?token=...) - what the ?token=... link uses
+        #   - the OPENJUTSU_TOKEN cookie     - set when the app is opened
+        #                                       as /?token=...
+        #   - the X-Openjutsu-Token header   - what the SPA sends, so a
+        #                                       browser with cookies blocked
+        #                                       still works
+        supplied = (
+            request.query_params.get("token", "")
+            or request.cookies.get("OPENJUTSU_TOKEN", "")
+            or request.headers.get("x-openjutsu-token", "")
+        )
         return secrets.compare_digest(supplied, _TOKEN)
 
     @app.middleware("http")

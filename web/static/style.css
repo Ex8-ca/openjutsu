@@ -314,3 +314,67 @@ video {
   margin-top: 0.45rem;
   font-size: 0.78rem;
 }
+
+
+/* --- access-token prompt ---------------------------------------------- */
+.token-prompt {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(3px);
+}
+
+.token-prompt-card {
+  background: var(--card-bg, #16161d);
+  border: 1px solid var(--border, #2c2c38);
+  border-radius: 14px;
+  padding: 26px 28px;
+  width: min(440px, calc(100vw - 40px));
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+
+.token-prompt-card h3 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+}
+
+.token-prompt-card p {
+  margin: 0 0 16px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  opacity: 0.82;
+}
+
+.token-prompt-card code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+.token-prompt-card input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border, #2c2c38);
+  background: rgba(0, 0, 0, 0.35);
+  color: inherit;
+  font-size: 0.95rem;
+  margin-bottom: 16px;
+}
+
+.token-prompt-card input:focus {
+  outline: 2px solid #6ea8ff;
+  outline-offset: 1px;
+}
+
+.token-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}

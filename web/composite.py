@@ -326,15 +326,7 @@ def composite_swap(
                     src_frame, gen_frame, frame_mask, change_threshold,
                     min_grow=6, max_grow=60,
                 )
-            # Inside the mask the source still holds the OLD subject, so
-            # pasting the whole generated region would stack the new subject
-            # on top of the old one. Use the generated frame only where it
-            # actually differs from the source - that is where the new
-            # subject is - and keep the source everywhere else.
-            diff = np.abs(gen_frame.astype(np.int16) -
-                          src_frame.astype(np.int16)).mean(axis=2)
-            inside = frame_mask.astype(np.float32) * (diff > 12.0)
-            alpha3 = inside[:, :, None]
+            alpha3 = frame_mask.astype(np.float32)[:, :, None]
             merged = src_frame.astype(np.float32) * (1.0 - alpha3) + \
                 gen_frame.astype(np.float32) * alpha3
             stdin.write(np.clip(merged, 0, 255).astype(np.uint8).tobytes())
