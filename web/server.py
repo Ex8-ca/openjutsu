@@ -272,11 +272,15 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def token_gate(request, call_next):
-        # The frame preview is cheap and read-only, and the selection
-        # canvas needs it before the user has any other way to pass the
-        # token, so it stays open.
+        # Only the endpoints that actually cost something are gated.
+        # /api/preview-frame runs ffmpeg for one still, and
+        # /api/enhance-prompt is a local Python heuristic - neither touches
+        # the GPU, neither calls out to a paid API, and the UI needs both
+        # before the user has any way to pass the token. Gating them meant
+        # clicking "Enhance prompt" popped the token dialog for no reason.
+        OPEN_PATHS = ("/api/preview-frame", "/api/enhance-prompt")
         if (_TOKEN and request.url.path.startswith("/api/")
-                and not request.url.path.startswith("/api/preview-frame")):
+                and not request.url.path.startswith(OPEN_PATHS)):
             if not _token_ok(request):
                 return JSONResponse(
                     {"error": "unauthorized", "hint": "pass ?token=... or set the cookie"},
